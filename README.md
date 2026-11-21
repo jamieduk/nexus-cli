@@ -19,6 +19,9 @@ A production-ready terminal file manager **and** a real integrated bash prompt, 
 
 <img width="1680" height="908" alt="web-ui" src="https://github.com/user-attachments/assets/206199b7-14ba-4f0e-8d7b-59c0af4b4b81" />
 
+<img width="1680" height="908" alt="image-2" src="https://github.com/user-attachments/assets/b5c78471-bdc7-4527-8a2f-2c981c71dd70" />
+
+
 ## Requirements
 
 - Ubuntu 22.04 / 24.04 LTS (or newer) 64-bit, ARM64 / aarch64 for the Pi 5.
