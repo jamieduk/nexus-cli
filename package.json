@@ -1,6 +1,6 @@
 {
   "name": "nexus-cli",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Nexus \u2014 a dual-pane terminal file manager with an integrated bash prompt",
   "type": "module",
   "license": "MIT",
