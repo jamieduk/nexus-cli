@@ -15,6 +15,7 @@ A production-ready terminal file manager **and** a real integrated bash prompt, 
 - Zero runtime dependencies: a custom ANSI renderer and direct interactive `bash` integration. Standalone binaries are produced with Bun.
 
 ---
+<img width="1678" height="934" alt="image" src="https://github.com/user-attachments/assets/082901c3-f51f-48e2-9ffc-7aa0a53e78de" />
 
 ## Requirements
 
