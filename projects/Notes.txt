@@ -1,0 +1,5 @@
+Project Location may go here /home/$USER/.config/nexus-cli/projects/calculator/
+
+For example /home/jay/.config/nexus-cli/projects/calculator/
+
+

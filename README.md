@@ -1,4 +1,4 @@
-# Nexus CLI/FM v1.0.1
+# Nexus CLI/FM v1.0.2
 
 https://github.com/jamieduk/nexus-cli
 
@@ -11,7 +11,7 @@ A production-ready terminal file manager **and** a real integrated bash prompt, 
 - Recursive search by file name, type, size, content or regular expression, plus a `../` entry at the top of the file list.
 - AI agent with real filesystem/exec/web/vault/image tools, persistent one-time permissions, skills, personality, memory and self-improvement.
 - Chat mode using the same LLM, personality and memory files.
-- Password-protected web UI with agent and chat modes and a permissions panel.
+- Password-protected web UI with file manager, remote CLI, agent and chat modes, plus a permissions panel.
 - Zero runtime dependencies: a custom ANSI renderer and direct interactive `bash` integration. Standalone binaries are produced with Bun.
 
 ---
@@ -314,6 +314,12 @@ delete, list directories, search by name/type/size/content, execute shell comman
 change permissions (including execute bits), fetch the web, ask you a clarifying
 question, remember facts, generate images, and access credentials.
 
+New projects default to the configured Projects directory rather than the current
+working directory. Ask for "a calculator app" and the agent creates a new
+subfolder such as `<projectsDir>/calculator`, then works inside it. The same
+Projects directory is available from the web file manager and from the CLI with
+`cd projects`.
+
 ### Agent directories
 
 All paths are configurable in `ai.json`:
@@ -388,6 +394,35 @@ The web interface is password-protected with HttpOnly SameSite session cookies,
 rate-limited login attempts, strict security headers and a same-origin API. It binds
 to `127.0.0.1` by default. To expose it on a LAN, edit `host` in `web.json` and put
 it behind a TLS reverse proxy such as Caddy or nginx; do not expose plain HTTP.
+
+### Web modes
+
+The browser has four tabs that share one working directory:
+
+- **Files** — browse the filesystem, open directories, type a path, jump to
+  **Projects**, and preview text, binary/hex and images. Clicking a directory
+  navigates; clicking a file previews it. The path bar supports absolute paths and
+  `~`.
+- **CLI** — a remote shell in the current web directory. Commands run through your
+  interactive bash environment, so aliases and exported variables work. `cd`
+  changes the shared web directory. `cd projects` goes to the configured Projects
+  directory when there is no local `./projects` folder; `cd -` returns to the
+  previous directory. Interactive programs (editors, `top`, `ssh`, `sudo`, pagers)
+  are rejected in the browser; use the terminal for those.
+- **Agent** — the same agent as `/agent`, running with the current web directory.
+  New apps/scripts still default to the Projects directory. Tool permissions are
+  granted from the **Permissions** panel.
+- **Chat** — same model, personality and memory, without tools.
+
+Navigating in Files or using `cd` in CLI changes the directory that Agent and Chat
+use. This makes a typical workflow possible without touching the terminal:
+
+```text
+CLI:   cd projects
+CLI:   ls
+Agent: create a calculator app in a new folder called calc
+Files: click Projects, open calc, preview the generated files
+```
 
 The browser header has a **Permissions** panel for one-time tool grants. Those
 grants are shared with the terminal agent and persisted in `permissions.json`.
@@ -535,7 +570,7 @@ support `~` and are resolved to absolute paths. The file is written with mode
 | `selfImprove` | `guided`, `auto` or `off`. |
 | `personalityPath` | Personality file for agent and chat. |
 | `skillsDir` | Directory of Markdown skills injected into the prompt. |
-| `projectsDir` | Default workspace for agent-generated files. |
+| `projectsDir` | Default workspace for new projects/apps; the agent uses it regardless of cwd. |
 | `toolsDir` | Executable custom tools created by the agent. |
 | `memoryDir` / `memoryPath` | Long-term memory files used by agent and chat. |
 | `vaultDir` | Credential vault (`0600` files). |
@@ -545,7 +580,7 @@ support `~` and are resolved to absolute paths. The file is written with mode
 Nexus sends these request headers automatically:
 
 ```text
-User-Agent: nexus-cli/1.0.1
+User-Agent: nexus-cli/1.0.2
 x-opencode-client: nexus-cli
 x-opencode-session: ses_<stable-per-conversation-id>
 x-session-id: ses_<stable-per-conversation-id>
@@ -786,9 +821,13 @@ be changed with the corresponding keys in `ai.json`.
 - The web UI binds to loopback by default and uses plain HTTP. Put a TLS reverse proxy in front before exposing it to a network.
 - Agent session ids (`x-opencode-session`) are per conversation and rotate with `/new`; they are not persisted across restarts.
 - Browser agent permissions are shared with the terminal agent through `permissions.json`.
+- The web CLI is non-interactive and has no PTY; use the terminal for editors, pagers, `sudo`, `ssh`, `top` and similar tools.
+- Files, CLI, Agent and Chat in the browser share the web working directory; the terminal shell keeps its own directory.
+- New projects are created under `projectsDir` by default, even when the agent is started from another directory.
 
 ---
 
 ## License
 
 MIT. See [LICENSE](LICENSE).
+

@@ -1,4 +1,4 @@
-NEXUS CLI/FM v1.0.1
+NEXUS CLI/FM v1.0.2
 ===================
 
 Project: /home/jay/Documents/Scripts/AI/Opencode/Projects/DESKTOP-APPS/nexus-cli
@@ -92,7 +92,7 @@ OpenCode Go / Zen example:
 OpenCode requires a stable x-opencode-session header. Nexus sends it
 automatically on every request, together with:
 
-  User-Agent: nexus-cli/1.0.1
+  User-Agent: nexus-cli/1.0.2
   x-opencode-client: nexus-cli
   x-opencode-session: ses_<stable-per-conversation-id>
   x-session-id: ses_<stable-per-conversation-id>
@@ -151,7 +151,7 @@ The agent can use real tools, subject to permissions:
 
 Directories and files (all configurable in ai.json):
 
-  ~/.config/nexus-cli/projects/       agent workspace / generated files
+  ~/.config/nexus-cli/projects/       default new-project location (also `cd projects`)
   ~/.config/nexus-cli/skills/         Markdown skills injected into the prompt
   ~/.config/nexus-cli/tools/          executable custom tools
   ~/.config/nexus-cli/memory/         long-term memory (agent and chat)
@@ -223,10 +223,40 @@ Commands:
   /web status          show address and bind details
   /web port 9000       change the port
 
-The browser has Agent and Chat modes. The Permissions button lets you grant the
-same one-time tool permissions used by the terminal agent. Sessions use HttpOnly
-SameSite cookies, login attempts are rate-limited, and responses are same-origin
-checked. It binds to 127.0.0.1 by default.
+Browser modes (all share the same web working directory):
+
+  CLI      remote shell. Enter runs a command. Try:
+             pwd
+             ls -la
+             cd projects
+             git status
+           Shell aliases/exports from ~/.bashrc work because commands run in
+           your bash environment. Interactive programs (vim, nano, top, ssh,
+           sudo, less, man, apt) are rejected: there is no PTY in the browser.
+           cd - returns to the previous web directory.
+
+  Files    file manager. Type a path and press Go, click .. to go up, click a
+           directory to open it, click a file to preview it. The Projects button
+           jumps to the configured projects directory. Preview supports text,
+           binary/hex and images. The current path is shown in the path bar.
+
+  Agent    same agent as /agent, using the current web directory. Tool calls are
+           still permission-gated. New projects are created under the Projects
+           directory by default, regardless of the current directory.
+
+  Chat     same model, personality and memory, without tools.
+
+The Permissions button lets you grant the same one-time tool permissions used by
+the terminal agent. Sessions use HttpOnly SameSite cookies, login attempts are
+rate-limited, and responses are same-origin checked. It binds to 127.0.0.1 by
+default.
+
+Typical web workflow:
+
+  CLI:   cd projects
+  CLI:   ls
+  Agent: create a calculator app in a new folder called calc
+  Files: click Projects, open calc, preview the generated files
 
 For LAN access, change "host" in web.json and put Nexus behind a TLS reverse
 proxy (Caddy/nginx). Do not expose plain HTTP.
@@ -390,11 +420,22 @@ Smoke-tested:
   - Stable x-opencode-session across tool-call rounds
   - Persistent permissions and web permissions API
   - Web login, sessions and authenticated status endpoint
+  - Web CLI commands, cd projects backtracking and shared cwd
+  - Web file listing, preview API and client-side JavaScript parsing
   - Standalone ./nexus build (bun-linux-arm64)
 
 
 CHANGELOG
 ---------
+
+v1.0.2
+  - Web UI now has CLI, Files, Agent and Chat modes
+  - Added remote web shell with shared cwd, cd - and cd projects shortcut
+  - Added web file manager with navigation, path bar, Projects button and previews
+  - Files/CLI/Agent/Chat share a web working directory
+  - Agent defaults new projects to the Projects directory regardless of cwd
+  - Added web preview APIs for text, binary/hex and images
+  - Interactive commands are blocked in the web CLI with a clear message
 
 v1.0.1
   - Added recursive search by name, type, size, content and regex
