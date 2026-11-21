@@ -8,6 +8,10 @@ A production-ready terminal file manager **and** a real integrated bash prompt, 
 - A working bash prompt at the bottom that sources `~/.bashrc`, `~/.bash_aliases` and `~/.bash_functions`.
 - Aliases, functions and exported variables work; `cd` changes stay in sync with the file manager.
 - Interactive programs (`vim`, `top`, `htop`, `less`, `ssh`, `apt`, `sudo`, …) take over the terminal and return to Nexus when they exit.
+- Recursive search by file name, type, size, content or regular expression, plus a `../` entry at the top of the file list.
+- AI agent with real filesystem/exec/web/vault/image tools, persistent one-time permissions, skills, personality, memory and self-improvement.
+- Chat mode using the same LLM, personality and memory files.
+- Password-protected web UI with agent and chat modes and a permissions panel.
 - Zero runtime dependencies: a custom ANSI renderer and direct interactive `bash` integration. Standalone binaries are produced with Bun.
 
 ---
@@ -21,13 +25,14 @@ A production-ready terminal file manager **and** a real integrated bash prompt, 
   - **Node.js 20+** with npm (fallback build).
 - `bash` and coreutils. The installer also installs basic build and terminal helpers.
 - Optional: a Nerd Font for the icon set (`nerdFonts`).
+- Optional: an OpenAI-compatible LLM endpoint for `/agent` and `/chat` (local Ollama or a cloud provider).
 
 ---
 
 ## Install
 
 ```bash
-cd /home/jay/Documents/Scripts/AI/Opencode/Projects/DESKTOP-APPS/TS-Terminal
+cd /path/to/nexus-cli
 ./install.sh
 ```
 
@@ -85,6 +90,10 @@ nexus --version
 ```
 
 The interface starts in the current working directory. `--cwd` overrides it.
+
+The shell prompt is focused on startup so you can immediately type commands or
+slash commands such as `/agent`. Press `F8` (or `Ctrl+O`) to switch to the file
+pane. Press it again to return to the shell.
 
 To launch Nexus from the desktop (in a fresh terminal, so a parent CLI cannot steal F9), install the included launcher:
 
@@ -156,7 +165,7 @@ The left pane shows icon, name, size, permissions, owner and modified time. Colu
 | `Tab` | Auto-complete the current command or path |
 | `Ctrl+O`, `F8` | Return to the file manager |
 
-Tab completion uses the shell's current directory, your aliases and functions, executables from `$PATH`, and file/directory names. Multiple matches show a common prefix first, then a list in the output pane.
+Tab completion uses the shell's current directory, your aliases and functions, executables from `$PATH`, slash commands such as `/agent`, and file/directory names. Multiple matches show a common prefix first, then a list in the output pane.
 
 Commands are executed through an interactive bash:
 
@@ -187,6 +196,42 @@ Prefix any command with `!` to force interactive mode even when detection is uns
 
 While an interactive command is running, the terminal belongs to that program. Its output is not copied into the shell pane.
 
+## Slash commands
+
+Type these in the shell prompt (they are completed with `Tab`).
+
+| Command | What it does |
+|---|---|
+| `/agent` | Enter AI agent mode. First use runs the setup wizard. |
+| `/agent <instruction>` | Run an instruction immediately, for example `/agent read package.json`. |
+| `/chat` / `/chat <prompt>` | Enter chat mode or send one message. No tools. |
+| `/search <query>` / `/find <query>` | Recursive file search; `Ctrl+F` does the same from the file pane. |
+| `/web` | Enable/start the password-protected web UI. |
+| `/web off` | Stop and disable the web UI. |
+| `/web reset` | Set a new web password. |
+| `/web status` | Show address, bind host and port. |
+| `/web port <n>` | Change the web port (default `8787`). |
+| `/ai` or `/ai status` | Show provider, endpoint, model, image model, dirs and preferences. |
+| `/ai setup` | Re-run the AI setup wizard. |
+| `/ai model <name>` | Change the model. |
+| `/ai endpoint <url>` | Change the OpenAI-compatible endpoint. |
+| `/ai key` | Prompt for a new API key (hidden input). |
+| `/ai image <model>` | Set or change the image model. `/image` is an alias. |
+| `/ai improve <guided\|auto\|off>` | Change the self-improvement policy. |
+| `/ai search <on\|off>` | Enable or disable web search/fetch tools. |
+| `/ai personality` / `/ai memory` | Open the personality or memory file in `$EDITOR`. |
+| `/skills` | List loaded skills. |
+| `/permissions` | List saved one-time permissions. |
+| `/permissions reset` | Clear every saved permission. |
+| `/vault` | List stored credential names. |
+| `/vault set <name>` | Store a credential with `0600` permissions. |
+| `/vault remove <name>` | Delete a vault entry. |
+| `/memory` | Edit the long-term memory file. |
+| `/new` / `/reset` | Clear the current agent or chat conversation and rotate the AI session id. |
+| `/exit` / `/back` | Leave agent/chat mode; in the shell, `/exit` quits Nexus. |
+| `/status` | Show mode, cwd, AI status and web status. |
+| `/help` | Open the in-app help. |
+
 ---
 
 ## Search
@@ -215,12 +260,27 @@ searching. Content search reads text files up to 2 MiB.
 
 Run `/agent` to enter agent mode. The first use asks for:
 
-1. Provider name (for example `ollama`, `openai`, `openrouter`, `lm-studio`).
+1. Provider name (for example `ollama`, `openai`, `openrouter`, `opencode-go`, `lm-studio`).
 2. OpenAI-compatible endpoint URL (for example `http://localhost:11434`).
 3. Model name (blank uses `deepseek-v4.1-flash`).
 4. API key (blank is fine for local models).
 5. An optional image-generation model.
 6. Self-improvement policy: guided (recommended), auto, or off.
+
+OpenCode Go / Zen example:
+
+```text
+Provider:   opencode-go
+Endpoint:   https://opencode.ai/zen/go/v1
+Model:      deepseek-v4.1-flash
+API key:    <your key>
+Image:      <blank unless you have an image model>
+Improve:    Guided
+```
+
+Nexus automatically sends the session headers OpenCode requires. To check the
+saved values at any time, run `/ai status`. Change them later with `/ai model`,
+`/ai endpoint`, `/ai key`, `/ai image` or `/ai setup`.
 
 Configuration is stored in `~/.config/nexus-cli/ai.json` with mode `0600`.
 Nexus sends a stable per-conversation `x-opencode-session` header (required by
@@ -275,7 +335,21 @@ access, image generation, self-improvement) ask for permission the first time.
 Choose **Always allow** to persist the grant in
 `~/.config/nexus-cli/permissions.json`; it is never asked again. You can choose
 **Deny and suggest an alternative** to tell the agent what to do instead.
-`/permissions` lists grants and `/permissions reset` clears them.
+`/permissions` lists grants and `/permissions reset` clears them. The store is a
+simple JSON file:
+
+```json
+{
+  "grants": {
+    "files:write": { "grantedAt": 1795236622594 },
+    "exec:command": { "grantedAt": 1795236631110 }
+  }
+}
+```
+
+Permission IDs are shared between the terminal agent and the web UI. If you choose
+**Deny and suggest an alternative**, Nexus asks for a short note and passes it back
+to the model so it can adjust its approach.
 
 ### Chat
 
@@ -317,8 +391,22 @@ grants are shared with the terminal agent and persisted in `permissions.json`.
 Outside that panel the browser agent cannot show interactive approval prompts, so
 grant what it needs there (or in the TUI) before asking it to modify the system.
 
----
+Settings are stored in `~/.config/nexus-cli/web.json`:
 
+```json
+{
+  "enabled": true,
+  "host": "127.0.0.1",
+  "port": 8787,
+  "passwordHash": "<scrypt hash>",
+  "salt": "<random salt>",
+  "createdAt": 1795236745872
+}
+```
+
+The password itself is never stored. If you lose it, run `/web reset` in the
+terminal. Change `host` to `0.0.0.0` only when a TLS reverse proxy is in front of
+Nexus.
 
 ---
 
@@ -400,6 +488,99 @@ AI configuration, permissions and the web password live alongside the main confi
 ~/.config/nexus-cli/permissions.json
 ~/.config/nexus-cli/web.json
 ```
+
+### `ai.json`
+
+Created by `/agent` (or `/ai setup`). All settings can be edited by hand; paths
+support `~` and are resolved to absolute paths. The file is written with mode
+`0600`.
+
+```json
+{
+  "initialized": true,
+  "provider": "opencode-go",
+  "baseUrl": "https://opencode.ai/zen/go/v1",
+  "apiKey": "<your key>",
+  "model": "deepseek-v4.1-flash",
+  "imageModel": "",
+  "temperature": 0.2,
+  "maxTokens": 8192,
+  "maxAgentSteps": 32,
+  "selfImprove": "guided",
+  "personalityPath": "~/.config/nexus-cli/personality.md",
+  "skillsDir": "~/.config/nexus-cli/skills",
+  "projectsDir": "~/.config/nexus-cli/projects",
+  "toolsDir": "~/.config/nexus-cli/tools",
+  "memoryDir": "~/.config/nexus-cli/memory",
+  "memoryPath": "~/.config/nexus-cli/memory/notes.md",
+  "vaultDir": "~/.config/nexus-cli/vault",
+  "webSearch": true,
+  "extraHeaders": {}
+}
+```
+
+| Key | Meaning |
+|---|---|
+| `provider` | Display name for your provider; used for `/ai status`. |
+| `baseUrl` | OpenAI-compatible endpoint. `/v1` is added automatically when omitted. |
+| `apiKey` | Bearer token; leave empty for local endpoints. |
+| `model` | Model used by agent and chat. Default `deepseek-v4.1-flash`. |
+| `imageModel` | Optional image-generation model for the `generate_image` tool. |
+| `temperature` | Sampling temperature, `0`–`2`. |
+| `maxTokens` | Maximum response tokens. |
+| `maxAgentSteps` | Maximum tool-call rounds per instruction. |
+| `selfImprove` | `guided`, `auto` or `off`. |
+| `personalityPath` | Personality file for agent and chat. |
+| `skillsDir` | Directory of Markdown skills injected into the prompt. |
+| `projectsDir` | Default workspace for agent-generated files. |
+| `toolsDir` | Executable custom tools created by the agent. |
+| `memoryDir` / `memoryPath` | Long-term memory files used by agent and chat. |
+| `vaultDir` | Credential vault (`0600` files). |
+| `webSearch` | Enable `web_search` and `web_fetch` tools. |
+| `extraHeaders` | Extra HTTP headers sent with every AI request. |
+
+Nexus sends these request headers automatically:
+
+```text
+User-Agent: nexus-cli/1.0.1
+x-opencode-client: nexus-cli
+x-opencode-session: ses_<stable-per-conversation-id>
+x-session-id: ses_<stable-per-conversation-id>
+x-client-request-id: ses_<id>:<timestamp>
+```
+
+`x-opencode-session` is required by OpenCode Go/Zen. It stays stable for every
+request in one conversation, including tool-call rounds, and is rotated by `/new`.
+Use `extraHeaders` if a provider needs a non-standard header.
+
+### `permissions.json`
+
+```json
+{
+  "grants": {
+    "files:write": { "grantedAt": 1795236622594 },
+    "exec:command": { "grantedAt": 1795236631110 }
+  }
+}
+```
+
+Delete a grant or run `/permissions reset` to make the agent ask again.
+
+### `web.json`
+
+```json
+{
+  "enabled": true,
+  "host": "127.0.0.1",
+  "port": 8787,
+  "passwordHash": "<scrypt hash>",
+  "salt": "<random salt>",
+  "createdAt": 1795236745872
+}
+```
+
+`enabled: true` makes the web server start automatically with Nexus. `host` and
+`port` control the listener. Do not expose it publicly without TLS.
 
 ---
 
@@ -512,6 +693,80 @@ The file manager shows the error and keeps the rest of the UI usable. Use your n
 
 Use Node.js 20+ and npm. The preferred build is Bun; `./install.sh --yes` installs Bun into `~/.bun` if it is missing.
 
+**AI error: `400 MissingSessionID` / missing `x-opencode-session`**
+
+This happens with OpenCode Go/Zen when the client does not send a session header.
+Current Nexus sends it automatically. Rebuild/reinstall the binary:
+
+```bash
+npm run build
+./export-ts.sh --yes
+# or from the project folder
+./start.sh
+```
+
+If you are on an older build, update it. You can also set a fixed value with
+`extraHeaders` in `ai.json`, but the automatic stable per-conversation id is
+preferred.
+
+**AI error: 401 / 403**
+
+Check the API key and endpoint with `/ai status`. Re-enter the key with `/ai key`.
+For OpenCode Go use `https://opencode.ai/zen/go/v1`; for Ollama use
+`http://localhost:11434`.
+
+**AI error: connection refused / model not found**
+
+The endpoint is not reachable, or the model name is wrong. For Ollama, confirm the
+server is running and the model is installed:
+
+```bash
+ollama list
+ollama serve
+```
+
+Then use `/ai model <name>` or `/ai setup`.
+
+**`/agent` asks for setup again**
+
+Setup completes only after the final self-improvement question. If you press Esc
+before the end, nothing is saved. Run `/agent` or `/ai setup` again.
+
+**Agent won't write/run commands**
+
+Tools are permission-gated. Choose **Always allow** the first time so the grant is
+saved in `permissions.json`. Check grants with `/permissions`; clear them with
+`/permissions reset`. In the web UI use the **Permissions** button.
+
+**Agent self-improvement is blocked**
+
+Set the policy with `/ai improve guided` or `/ai improve auto`. `off` disables
+creating skills, tools and personality updates. Guided mode still asks once and can
+remember the grant.
+
+**Web UI won't start**
+
+Another process may own the port, or the bind address may be unavailable. Check
+`/web status`, change the port with `/web port 9000`, or edit `host`/`port` in
+`web.json`. If the port is taken, Nexus reports the error in the status bar.
+
+**I forgot the web password**
+
+Run `/web reset` in the terminal and choose a new password (or leave it blank to
+generate one). The password is stored only as a scrypt hash.
+
+**Web agent says permission denied**
+
+Open the **Permissions** panel in the web header and grant the needed tool. The
+browser cannot show interactive prompts, so grants must exist there or in the
+terminal. Self-improvement set to `auto` also works in the browser.
+
+**Where are the agent folders?**
+
+By default under `~/.config/nexus-cli/`: `projects/`, `skills/`, `tools/`,
+`memory/`, `vault/` and `personality.md`. They are created on first start and can
+be changed with the corresponding keys in `ai.json`.
+
 ---
 
 ## Notes and limitations
@@ -522,6 +777,12 @@ Use Node.js 20+ and npm. The preferred build is Bun; `./install.sh --yes` instal
 - The right-pane preview is intentionally bounded; `F2` reads more (up to 2 MiB / 2000 lines) but still protects the terminal from enormous files.
 - File operations are local filesystem operations and honour normal Unix permissions. Deletions are permanent; the confirmation can be turned off in the config/menu.
 - Themes use 24-bit ANSI colour. Most modern terminals on Ubuntu support it.
+- AI responses are not streamed token-by-token; Nexus shows progress, assistant messages and tool activity as each turn completes.
+- Vault files are protected by `0600` filesystem permissions, not encryption at rest. Protect your home directory and backups.
+- Custom tools and `exec_command` run with your normal user permissions. There is no privilege escalation.
+- The web UI binds to loopback by default and uses plain HTTP. Put a TLS reverse proxy in front before exposing it to a network.
+- Agent session ids (`x-opencode-session`) are per conversation and rotate with `/new`; they are not persisted across restarts.
+- Browser agent permissions are shared with the terminal agent through `permissions.json`.
 
 ---
 

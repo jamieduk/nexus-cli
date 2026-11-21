@@ -1,114 +1,411 @@
+NEXUS CLI/FM v1.0.1
+===================
+
+Project: /home/jay/Documents/Scripts/AI/Opencode/Projects/DESKTOP-APPS/nexus-cli
+Config:  ~/.config/nexus-cli/
+Help:    nexus --help  or press F1 inside Nexus
+
+Nexus is a dual-pane file manager with an integrated bash prompt, a tool-using
+AI agent, chat mode, recursive file search and a password-protected web UI.
+
+This file is the quick-reference/notes sheet. README.md is the full manual.
 
 
+QUICK START
+-----------
 
-Built Nexus CLI/FM v1.0.0 in /home/jay/Documents/Scripts/AI/Opencode/Projects/DESKTOP-APPS/TS-Terminal:
+  cd /home/jay/Documents/Scripts/AI/Opencode/Projects/DESKTOP-APPS/nexus-cli
+  ./start.sh
+  # or, if installed:
+  nexus
 
-- Dual-pane file manager with previews, syntax highlighting, metadata, sorting, filtering, multi-select, and copy/move/delete/mkdir.
+Nexus starts with the SHELL prompt focused, so you can type a command or slash
+command immediately. Press F8 (or Ctrl+O) to switch to the file pane.
+The file pane always has a ".." entry at the top; press Enter on it to go up.
+Press Ctrl+F in the file pane to search. Press Tab in the shell to complete
+commands, paths and slash commands. F1 shows the in-app key reference.
 
-- Integrated bash prompt sourcing ~/.bashrc, .bash_aliases, and .bash_functions, with aliases/functions/env support and bidirectional cd sync.
+Install/refresh the system binary:
 
-- Interactive terminal handoff for vim/top/ssh/sudo/etc., help viewer, actions menu, themes, Nerd Font option, and ARM64 standalone Bun build.
+  ./install.sh
+  # or rebuild and install in one step:
+  ./export-ts.sh --yes
 
-- Installer, launcher scripts, TypeScript config, README, and MIT license included.
-Run 
+Rebuild only the local standalone binary:
 
-./install.sh
+  npm run build
+  bun build src/index.ts --compile --target=bun-linux-arm64 --outfile nexus
+  ./nexus --version
 
-# to install /usr/local/bin/nexus plus optional shell integration, or
-
-./start.sh
-
-# from the project folder. Verified with typecheck/build, PTY UI smoke tests, alias/function/env execution, directory sync, interactive commands, and signal cancellation.
-
-# After you make changes and want to re-build or build from scratch
-
-./export-ts.sh --yes
-
-
-
-./install.sh
-==> Nexus CLI/FM installer
-    Project: /home/jay/Documents/Scripts/AI/Opencode/Projects/DESKTOP-APPS/TS-Terminal
-    Prefix:  /usr/local
-OK   Architecture: aarch64
-==> Installing system prerequisites
-OK   System prerequisites checked
-Bun is not installed. Install Bun for the fastest standalone build? [y/N] y
-==> Installing Bun
-OK   Bun installed
-==> Building standalone binary with Bun
-  [35ms]  bundle  10 modules
-[3.486s] compile  /home/jay/Documents/Scripts/AI/Opencode/Projects/DESKTOP-APPS/TS-Terminal/nexus
-OK   Installed /usr/local/bin/nexus
-Add Nexus shell integration to ~/.bashrc? (recommended) [y/N] y
-OK   Shell integration added to ~/.bashrc
-==> Run 'source ~/.bashrc' or open a new terminal to activate it.
-
-Nexus CLI/FM is installed.
-
-  Run:       /usr/local/bin/nexus
-  Version:   /usr/local/bin/nexus --version
-  Help:      /usr/local/bin/nexus --help
-  Config:    /home/jay/.config/nexus-cli/config.json
-
-The interface needs a real TTY. It starts in the current directory, sources
-~/.bashrc, ~/.bash_aliases and ~/.bash_functions, and keeps the file manager
-and bash prompt in sync. Press F1 inside Nexus for the full key reference.
-
-jay@jnetreloadedagain:~/Documents/Scripts/AI/Opencode/Projects/DESKTOP-APPS/TS-Terminal$ 
+On x86_64 use --target=bun-linux-x64.
 
 
+FILE SEARCH
+-----------
 
-# Usage
-Open a new terminal window and type:
+Ctrl+F in the file pane, or /search in the shell. Search is recursive from the
+current directory.
 
-nexus
+  report                     search names and file contents
+  name:config type:json      name and extension
+  content:apiKey type:ts     text inside matching files
+  type:pdf size:>1M          extension and minimum size
+  size:10K..2M               inclusive size range
+  regex:foo.*bar             regular-expression search
 
+Supported keys: name: (file:), type: (ext:), content:, size:, in:, regex:.
+Enter on a result jumps to its folder and selects the file. .git, node_modules,
+caches and similar heavy directories are skipped. Content search reads text files
+up to 2 MiB.
 
-# Use F9 button to goto cli / file mode!
+../ NAVIGATION
+--------------
 
-# Use Tab to auto-complete a command!
-
-# Use page up and down keys for cli mode to see more of the view! Or maximise the window for full view mode!
-
-
-################################################# UPDATE ####################################################
-
-
-Implemented the full update set.
-Highlights
-- File search: Ctrl+F or /search with name:, type:, size:, content:, ranges like size:10K..2M, and regex support.
-- File pane now has a ../ parent entry at the top.
-- /agent setup wizard asks provider, endpoint, model, API key, image model, and self-improvement mode. Default model is deepseek-v4.1-flash.
-- Agent tools: read, write/edit, list, search, copy, move, delete, mkdir, chmod/executable bits, exec, web search/fetch, vault access, image generation, ask-user, remember, create skills/tools, and update personality.
-- /chat uses the same LLM, personality, and memory files without tools.
-- Persistent one-time permissions with Always allow, Allow once, Deny, and Deny + suggest alternative. Grants live in permissions.json.
-- Self-improvement supports guided/auto/off, including agent-created skills, tools, and personality updates.
-- Password-protected web UI via /web, /web off, /web reset, /web port <n>, /web status, with scrypt hashing, sessions, rate limiting, security headers, and a web Permissions panel.
-- Agent directories are created and configurable in ai.json:
-projects/, skills/, tools/, memory/, vault/, plus personality.md.
-- Vault entries are written with 0600 permissions.
-- Startup now focuses the shell so typing /agent works immediately; F8 switches to files.
-Verified
-- npm run typecheck, npm run build
-- TUI smoke tests for search, slash-command completion, agent mode, and permissions
-- Mock-LLM agent tool loop and persistent permission grant
-- Web login/authentication and permissions API
-- Rebuilt the local standalone ./nexus binary.
-Run with ./start.sh or ./nexus. To refresh an installed /usr/local/bin/nexus, rerun ./install.sh or ./export-ts.sh --yes.
+The file list now includes ".." at the top of every non-root directory. Select
+it and press Enter to go to the parent directory. The normal parent shortcuts
+still work: Left, h, Backspace or u.
 
 
-# For opencode-go endpoint url
-https://opencode.ai/zen/go/v1
+AI AGENT AND CHAT
+-----------------
+
+Enter agent mode:
+
+  /agent
+
+First use runs a setup wizard and asks for:
+
+  1. Provider name          example: opencode-go, ollama, openai, openrouter
+  2. Endpoint URL           example: https://opencode.ai/zen/go/v1
+  3. Model                  blank = deepseek-v4.1-flash
+  4. API key                blank is fine for local models
+  5. Image model            optional; leave blank to disable image generation
+  6. Self-improvement       guided (recommended), auto, or off
+
+OpenCode Go / Zen example:
+
+  Provider: opencode-go
+  Endpoint: https://opencode.ai/zen/go/v1
+  Model:    deepseek-v4.1-flash
+  API key:  <your key>
+
+OpenCode requires a stable x-opencode-session header. Nexus sends it
+automatically on every request, together with:
+
+  User-Agent: nexus-cli/1.0.1
+  x-opencode-client: nexus-cli
+  x-opencode-session: ses_<stable-per-conversation-id>
+  x-session-id: ses_<stable-per-conversation-id>
+  x-client-request-id: ses_<id>:<timestamp>
+
+The session id is stable across all tool-call rounds in a conversation and is
+rotated by /new. If a provider needs extra headers, add extraHeaders to ai.json.
+
+After setup, ask the agent directly:
+
+  /agent read package.json and add a test script
+  /agent find every TODO under src and summarise them
+  /agent copy src/index.ts to src/index.ts.bak and make it executable
+  /agent create a skill for reviewing Rust pull requests
+
+Chat mode uses the same LLM, personality and memory files, but no tools:
+
+  /chat
+  /chat explain this error and suggest a fix
+
+Useful AI commands:
+
+  /ai status
+  /ai setup
+  /ai model <name>
+  /ai endpoint <url>
+  /ai key
+  /ai image <model>          (alias: /image)
+  /ai improve guided|auto|off
+  /ai search on|off
+  /ai personality            open personality.md in $EDITOR
+  /ai memory                 open the memory file in $EDITOR
+  /skills
+  /permissions
+  /permissions reset
+  /vault list
+  /vault set <name>
+  /vault remove <name>
+  /new                       clear conversation and rotate session id
+  /exit                      leave agent/chat mode
 
 
+AGENT TOOLS
+-----------
+
+The agent can use real tools, subject to permissions:
+
+  read_file, write_file, edit_file, list_directory, search_files
+  make_directory, copy_path, move_file, delete_path, set_permissions
+  exec_command
+  web_search, web_fetch
+  ask_user, remember, list_skills
+  create_skill, create_tool, update_personality, run_custom_tool
+  generate_image
+  vault_list, vault_get, vault_set
+
+Directories and files (all configurable in ai.json):
+
+  ~/.config/nexus-cli/projects/       agent workspace / generated files
+  ~/.config/nexus-cli/skills/         Markdown skills injected into the prompt
+  ~/.config/nexus-cli/tools/          executable custom tools
+  ~/.config/nexus-cli/memory/         long-term memory (agent and chat)
+  ~/.config/nexus-cli/vault/          credentials, 0600 files
+  ~/.config/nexus-cli/personality.md  personality for agent and chat
+
+Add .md files to skills/ to teach new workflows. Custom tools receive their
+arguments as JSON in NEXUS_TOOL_ARGS. The agent can create skills/tools itself
+when self-improvement is enabled and approved.
 
 
+PERMISSIONS
+-----------
+
+Dangerous tools ask once. Options:
+
+  Always allow (remember)          saved in permissions.json
+  Allow for this session           not saved
+  Deny
+  Deny and suggest an alternative  your note is sent back to the model
+
+permissions.json format:
+
+  {
+    "grants": {
+      "files:write": { "grantedAt": 1795236622594 },
+      "exec:command": { "grantedAt": 1795236631110 }
+    }
+  }
+
+Grant IDs include files:write, files:copy, files:move, files:delete,
+files:chmod, exec:command, exec:custom-tool, network:web, vault:access,
+vault:write, image:generate and self:improve. Grants are shared by the terminal
+agent and web agent. /permissions reset clears them.
 
 
+SELF-IMPROVEMENT
+----------------
+
+Policies:
+
+  guided   ask before creating a skill/tool or updating the personality
+  auto     allow self-improvement automatically
+  off      disable self-improvement
+
+Setup asks for this on first use. Change it with /ai improve. In guided mode the
+agent explains the benefit/risk and asks; choose Always allow to remember the
+decision.
 
 
+WEB UI
+------
+
+First use:
+
+  /web
+
+Nexus asks for a password. Leave it blank to generate a strong password; the
+generated password is shown once in a modal. Only a scrypt hash is stored in
+web.json. Once enabled, the server starts automatically every time Nexus starts.
+
+  http://127.0.0.1:8787/
+
+Commands:
+
+  /web                 start / enable
+  /web off             stop / disable
+  /web reset           set a new password
+  /web status          show address and bind details
+  /web port 9000       change the port
+
+The browser has Agent and Chat modes. The Permissions button lets you grant the
+same one-time tool permissions used by the terminal agent. Sessions use HttpOnly
+SameSite cookies, login attempts are rate-limited, and responses are same-origin
+checked. It binds to 127.0.0.1 by default.
+
+For LAN access, change "host" in web.json and put Nexus behind a TLS reverse
+proxy (Caddy/nginx). Do not expose plain HTTP.
 
 
+CONFIG FILES
+------------
+
+  ~/.config/nexus-cli/config.json       UI and shell settings
+  ~/.config/nexus-cli/ai.json           AI provider, model, dirs, headers
+  ~/.config/nexus-cli/permissions.json  saved agent grants
+  ~/.config/nexus-cli/web.json          web UI password hash and bind settings
+  ~/.config/nexus-cli/last-cwd          last directory on exit
+
+config.json example (UI and shell):
+
+  {
+    "theme": "tokyo-night",
+    "nerdFonts": false,
+    "showHidden": false,
+    "dirsFirst": true,
+    "sortBy": "name",
+    "sortAsc": true,
+    "editor": "",
+    "pager": "",
+    "previewLines": 120,
+    "maxPreviewBytes": 262144,
+    "commandTimeoutMs": 0,
+    "historySize": 200,
+    "confirmDelete": true,
+    "mouse": false
+  }
+
+  theme: tokyo-night | nord | mono
+  editor: empty uses $VISUAL, $EDITOR, nano, then vi
+  commandTimeoutMs: 0 = no timeout for non-interactive shell commands
+
+ai.json full example:
+
+  {
+    "initialized": true,
+    "provider": "opencode-go",
+    "baseUrl": "https://opencode.ai/zen/go/v1",
+    "apiKey": "<your key>",
+    "model": "deepseek-v4.1-flash",
+    "imageModel": "",
+    "temperature": 0.2,
+    "maxTokens": 8192,
+    "maxAgentSteps": 32,
+    "selfImprove": "guided",
+    "personalityPath": "~/.config/nexus-cli/personality.md",
+    "skillsDir": "~/.config/nexus-cli/skills",
+    "projectsDir": "~/.config/nexus-cli/projects",
+    "toolsDir": "~/.config/nexus-cli/tools",
+    "memoryDir": "~/.config/nexus-cli/memory",
+    "memoryPath": "~/.config/nexus-cli/memory/notes.md",
+    "vaultDir": "~/.config/nexus-cli/vault",
+    "webSearch": true,
+    "extraHeaders": {}
+  }
+
+notes:
+  - ai.json, permissions.json and web.json are written with mode 0600.
+  - Config paths support "~" and are resolved to absolute paths.
+  - baseUrl accepts an endpoint with or without /v1. Nexus appends the OpenAI
+    path (for Ollama use http://localhost:11434).
+  - extraHeaders is merged into every AI request. Use it for provider-specific
+    headers. Authorization is always taken from apiKey.
+  - The vault is protected by filesystem permissions (0600), not encryption at
+    rest. Protect your home directory and backups.
 
 
+CONFIG ENVIRONMENT VARIABLES
+----------------------------
+
+  NEXUS_DEBUG=1
+  NEXUS_NERD_FONTS=1
+  NEXUS_AI_PROVIDER=ollama
+  NEXUS_AI_BASE_URL=http://localhost:11434
+  NEXUS_AI_MODEL=deepseek-v4.1-flash
+  NEXUS_AI_API_KEY=...
+
+
+SLASH COMMAND QUICK LIST
+------------------------
+
+  /agent [instruction]      agent mode
+  /chat [prompt]            chat mode
+  /search <query>           recursive search
+  /web [on|off|reset|status|port <n>]
+  /ai [status|setup|model|endpoint|key|image|improve|search|personality|memory]
+  /model <name>             alias for /ai model
+  /image <model>            alias for /ai image
+  /skills
+  /permissions [reset]
+  /vault [list|set <name>|remove <name>]
+  /memory
+  /new [reset]
+  /exit [back]
+  /status
+  /clear
+  /help
+
+
+TROUBLESHOOTING
+---------------
+
+HTTP 400 MissingSessionID / x-opencode-session
+  Update/rebuild Nexus. Current builds send the header automatically. Reinstall
+  with ./export-ts.sh --yes or run ./start.sh. If needed, set a custom header in
+  ai.json extraHeaders.
+
+HTTP 401 / 403
+  Wrong or missing API key. Check /ai status and re-enter with /ai key. For
+  OpenCode Go the endpoint is https://opencode.ai/zen/go/v1.
+
+Connection refused / model not found
+  Endpoint unreachable or model name wrong. For Ollama:
+    ollama list
+    ollama serve
+  Then /ai model <name> or /ai setup.
+
+/agent keeps asking for setup
+  You cancelled before the final question. Run /agent or /ai setup again.
+
+Agent won't write files or run commands
+  Grant permissions with Always allow the first time. Check /permissions and
+  clear with /permissions reset. In the web UI use the Permissions button.
+
+Self-improvement blocked
+  /ai improve guided or /ai improve auto. "off" disables skills/tools/personality
+  changes.
+
+Web UI won't start
+  Port in use or host unavailable. Check /web status, use /web port <n>, or edit
+  host/port in web.json.
+
+Forgot web password
+  /web reset (leave blank to generate a new one).
+
+Search finds nothing
+  Content search skips binaries and files over 2 MiB, and skips .git,
+  node_modules and cache directories. Try name: or type: filters.
+
+Terminal too small
+  Nexus needs at least 60x16. Maximise the window.
+
+F10 or F9 captured by the desktop
+  Use Ctrl+Q to quit. Use ./create-launcher.sh to launch in a dedicated terminal.
+
+
+VERIFIED / BUILD NOTES
+----------------------
+
+  npm run typecheck
+  npm run build
+
+Smoke-tested:
+  - TUI rendering, search, slash-command completion, ../ navigation
+  - Agent setup and agent tool loop against a mock OpenAI-compatible endpoint
+  - Stable x-opencode-session across tool-call rounds
+  - Persistent permissions and web permissions API
+  - Web login, sessions and authenticated status endpoint
+  - Standalone ./nexus build (bun-linux-arm64)
+
+
+CHANGELOG
+---------
+
+v1.0.1
+  - Added recursive search by name, type, size, content and regex
+  - Added ../ entry at the top of the file list
+  - Added /agent with setup wizard, tool calling and persistent permissions
+  - Added /chat using personality and memory
+  - Added agent filesystem, exec, chmod, copy/move/delete, web, vault and image tools
+  - Added skills, personality, memory, projects, tools and vault directories
+  - Added guided/auto/off self-improvement and alternative-suggestion permissions
+  - Added password-protected web UI with /web, /web off and /web reset
+  - Added stable x-opencode-session and related AI request headers
+  - Added extraHeaders support in ai.json
+  - Startup now focuses the shell; F8 switches to files
+  - Updated README and Notes
