@@ -116,6 +116,7 @@ function modeString(mode: number, isDir: boolean, isSymlink: boolean): string {
 }
 
 function iconFor(name: string, item: Partial<FileItem>, config: Config): string {
+  if (item.isParent) return '↰';
   const set = config.nerdFonts ? NERD_ICONS : FALLBACK_ICONS;
   if (item.isSymlink) return set.symlink ?? set.file ?? '·';
   if (item.isDir) return set.dir ?? '▸';
@@ -224,6 +225,7 @@ export class FileManager {
     this.showHidden = config.showHidden;
     this.dirsFirst = config.dirsFirst;
     this.refresh();
+    if (this.items.length > 1 && this.items[0]?.isParent) this.selectedIndex = 1;
   }
 
   private resolveDir(input: string): string {
@@ -344,6 +346,39 @@ export class FileManager {
       return comparison * direction;
     });
 
+    if (this.filter.trim() === '') {
+      const parentPath = path.dirname(this.cwd);
+      if (parentPath !== this.cwd) {
+        let parentStat: fs.Stats | null = null;
+        try {
+          parentStat = fs.lstatSync(parentPath);
+        } catch {
+          parentStat = null;
+        }
+        const parent: FileItem = {
+          name: '../',
+          path: parentPath,
+          isDir: true,
+          isSymlink: false,
+          isExecutable: false,
+          hidden: false,
+          size: 0,
+          blocks: parentStat?.blocks ?? 0,
+          mtime: parentStat?.mtimeMs ?? Date.now(),
+          mode: 0,
+          modeString: 'd---------',
+          uid: parentStat?.uid ?? 0,
+          gid: parentStat?.gid ?? 0,
+          user: parentStat ? userName(parentStat.uid) : '',
+          group: parentStat ? groupName(parentStat.gid) : '',
+          extension: '',
+          icon: '↰',
+          isParent: true,
+        };
+        items.unshift(parent);
+      }
+    }
+
     this.items = items;
     if (previous) {
       const nextIndex = items.findIndex((item) => item.path === previous);
@@ -370,6 +405,7 @@ export class FileManager {
     this.selectedIndex = 0;
     this.filter = '';
     this.refresh(false);
+    this.selectedIndex = this.items.length > 1 && this.items[0]?.isParent ? 1 : 0;
     return true;
   }
 
@@ -405,7 +441,7 @@ export class FileManager {
 
   toggleMark(): void {
     const item = this.selected;
-    if (!item) return;
+    if (!item || item.isParent) return;
     if (this.marked.has(item.path)) this.marked.delete(item.path);
     else this.marked.add(item.path);
     this.move(1);
@@ -452,15 +488,42 @@ export class FileManager {
   }
 
   actionItems(): FileItem[] {
-    const marked = this.markedItems();
+    const marked = this.markedItems().filter((item) => item.isParent !== true);
     if (marked.length > 0) return marked;
     const selected = this.selected;
-    return selected ? [selected] : [];
+    return selected && selected.isParent !== true ? [selected] : [];
+  }
+
+  selectPath(target: string): boolean {
+    const resolved = path.resolve(target);
+    const index = this.items.findIndex((item) => item.path === resolved);
+    if (index < 0) return false;
+    this.selectedIndex = index;
+    return true;
   }
 
   preview(item: FileItem | null, palette: Palette, config: Config): PreviewState {
     if (!item) {
       return emptyPreview('Nothing selected', 'Use the arrow keys or hjkl to choose a file.');
+    }
+
+    if (item.isParent) {
+      return {
+        kind: 'directory',
+        title: '../',
+        subtitle: 'Parent directory',
+        lines: [],
+        meta: [
+          { label: 'Path', value: tildify(item.path) },
+          { label: 'Type', value: 'Parent directory', tone: 'muted' },
+          { label: 'Action', value: 'Press Enter to go up', tone: 'muted' },
+        ],
+        hex: [],
+        language: 'text',
+        scroll: 0,
+        loading: false,
+        truncated: false,
+      };
     }
 
     if (item.isDir) {
@@ -662,7 +725,7 @@ export class FileManager {
   }
 
   async enrichPreview(item: FileItem | null, preview: PreviewState): Promise<PreviewState> {
-    if (!item || preview.kind !== 'directory') return preview;
+    if (!item || item.isParent || preview.kind !== 'directory') return preview;
     const size = await this.directorySize(item.path);
     const next: PreviewState = {
       ...preview,

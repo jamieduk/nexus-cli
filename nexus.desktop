@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Nexus CLI/FM
+GenericName=Terminal File Manager
+Comment=Dual-pane terminal file manager with an integrated bash prompt
+Exec=/usr/local/bin/nexus
+TryExec=/usr/local/bin/nexus
+Icon=utilities-terminal
+Terminal=true
+Categories=Utility;FileTools;
+Keywords=nexus;terminal;file manager;bash;command line;
+StartupNotify=true

@@ -691,13 +691,23 @@ export class Tui {
     const shell = model.shell;
     const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
     const spinner = spinnerFrames[shell.spinner % spinnerFrames.length] ?? '⠋';
+    const modeLabel = shell.mode === 'agent' ? 'AGENT' : shell.mode === 'chat' ? 'CHAT' : 'SHELL';
+    const modeColor = shell.mode === 'agent' ? p.purple : shell.mode === 'chat' ? p.accent2 : p.accent;
+    const modeTitle = model.focus === 'shell'
+      ? color(modeLabel, { fg: modeColor, bold: true })
+      : color(modeLabel, { fg: p.muted });
     const title = shell.running
-      ? `${focusLabel(model.focus === 'shell', p, 'SHELL')} · ${color(spinner, { fg: p.yellow })} running ${truncateAnsi(safeLabel(shell.runningCommand), Math.max(10, width - 30))}`
-      : `${focusLabel(model.focus === 'shell', p, 'SHELL')} · ${safeLabel(shortenPath(shell.cwd, Math.max(12, width - 16)))}`;
+      ? `${modeTitle} · ${color(spinner, { fg: p.yellow })} running ${truncateAnsi(safeLabel(shell.runningCommand), Math.max(10, width - 30))}`
+      : `${modeTitle} · ${safeLabel(shortenPath(shell.cwd, Math.max(12, width - 16)))}`;
     const body: string[] = [];
     const outputHeight = Math.max(1, height - 3);
     if (shell.output.length === 0) {
-      body.push(color('Bash prompt with your ~/.bashrc aliases, functions and exports. Try: ll · git status · cd /var/log', { fg: p.muted, italic: true }));
+      const hint = shell.mode === 'agent'
+        ? 'Agent mode. Read, search, edit, copy, move or delete files, run commands, or ask a question. /exit returns to the shell.'
+        : shell.mode === 'chat'
+          ? 'Chat mode. Uses your personality and memory files. /exit returns to the shell.'
+          : 'Bash prompt with your ~/.bashrc aliases, functions and exports. Try: ll · git status · cd /var/log · /agent · /chat';
+      body.push(color(hint, { fg: p.muted, italic: true }));
       for (let i = 1; i < outputHeight; i += 1) body.push('');
     } else {
       const end = Math.max(0, shell.output.length - shell.outputScroll);
@@ -707,6 +717,9 @@ export class Tui {
         let styled = line.text;
         if (line.kind === 'command') styled = color('❯ ', { fg: p.accent, bold: true }) + color(line.text, { fg: p.accent });
         else if (line.kind === 'error') styled = color(line.text, { fg: p.red });
+        else if (line.kind === 'agent-error') styled = color(line.text, { fg: p.red });
+        else if (line.kind === 'tool') styled = color(line.text, { fg: p.dim });
+        else if (line.kind === 'agent') styled = color(line.text, { fg: p.fg });
         else if (line.kind === 'info') styled = color(line.text, { fg: p.muted, italic: true });
         else styled = color(line.text, { fg: p.fg });
         body.push(truncateAnsi(styled, width));
@@ -740,6 +753,12 @@ export class Tui {
     const p = model.palette;
     const system = model.system;
     const short = safeLabel(shortenPath(model.shell.cwd, Math.max(12, Math.floor(model.width * 0.32))));
+    if (model.shell.mode === 'agent') {
+      return color('agent', { fg: p.purple, bold: true }) + color(':', { fg: p.dim }) + color(short, { fg: p.accent }) + color(' › ', { fg: p.purple }) + ' ';
+    }
+    if (model.shell.mode === 'chat') {
+      return color('chat', { fg: p.accent2, bold: true }) + color(':', { fg: p.dim }) + color(short, { fg: p.accent }) + color(' › ', { fg: p.accent2 }) + ' ';
+    }
     const prefix = color(`${system.user}@${system.hostname}`, { fg: p.green, bold: true }) + ':' + color(short, { fg: p.accent });
     const suffix = system.user === 'root' ? '#' : '$';
     return prefix + ' ' + color(suffix, { fg: p.muted }) + ' ';
@@ -750,9 +769,9 @@ export class Tui {
     const rows: string[] = [];
     const fullKeys: Array<[string, string]> = [
       ['F1', 'Help'], ['F2', 'View'], ['F3', 'Edit'], ['F4', 'Copy'], ['F5', 'Move'],
-      ['F6', 'Delete'], ['F7', 'Mkdir'], ['F8', 'Focus'], ['F9', 'Menu'], ['^Q', 'Exit'],
+      ['F6', 'Delete'], ['F7', 'Mkdir'], ['F8', 'Focus'], ['F9', 'Menu'], ['^F', 'Find'], ['^Q', 'Exit'],
     ];
-    const compactKeys: Array<[string, string]> = [['F1', 'Help'], ['F4', 'Copy'], ['F6', 'Del'], ['F8', 'Focus'], ['F9', 'Menu'], ['^Q', 'Exit']];
+    const compactKeys: Array<[string, string]> = [['F1', 'Help'], ['F4', 'Copy'], ['F6', 'Del'], ['F8', 'Focus'], ['F9', 'Menu'], ['^F', 'Find'], ['^Q', 'Exit']];
     const keys = width >= 96 ? fullKeys : compactKeys;
     let shortcuts = ' ';
     for (const [key, label] of keys) {
@@ -792,13 +811,25 @@ export class Tui {
       return this.renderFullModal(model, modal);
     }
     const width = clamp(modal.kind === 'menu' ? 58 : 68, 30, model.width - 8);
-    const innerHeight = Math.max(4, Math.min(model.height - 6, modal.kind === 'menu' ? modal.options.length + 4 : 8));
+    const wrapWidth = Math.max(10, width - 4);
+    const menuMessageLines = modal.kind === 'menu' && modal.message !== ''
+      ? modal.message.split('\n').flatMap((line) => line === '' ? [''] : wrapText(line, wrapWidth))
+      : [];
+    const menuExtra = menuMessageLines.length > 0 ? menuMessageLines.length + 1 : 0;
+    const innerHeight = Math.max(4, Math.min(
+      model.height - 6,
+      modal.kind === 'menu' ? modal.options.length + 4 + menuExtra : 8,
+    ));
     const height = innerHeight + 2;
     const body: string[] = [];
-    const wrapWidth = Math.max(10, width - 4);
 
     if (modal.kind === 'menu') {
-      const visibleOptions = Math.max(3, innerHeight - 2);
+      for (const line of menuMessageLines) {
+        if (body.length >= innerHeight - 3) break;
+        body.push(color(safeLabel(line), { fg: p.muted }));
+      }
+      if (menuMessageLines.length > 0 && body.length < innerHeight - 3) body.push('');
+      const visibleOptions = Math.max(3, innerHeight - 2 - menuExtra);
       const start = clamp(modal.selected - Math.floor(visibleOptions / 2), 0, Math.max(0, modal.options.length - visibleOptions));
       const slice = modal.options.slice(start, start + visibleOptions);
       slice.forEach((option, offset) => {
@@ -819,11 +850,12 @@ export class Tui {
         const value = modal.input;
         const cursor = clamp(modal.cursor, 0, value.length);
         const availableInput = Math.max(4, wrapWidth - 2);
-        let displayValue = value;
+        const shown = modal.secret === true ? '•'.repeat(value.length) : value;
+        let displayValue = shown;
         let displayCursor = cursor;
         if (displayValue.length > availableInput - 1) {
           const start = Math.max(0, cursor - availableInput + 8);
-          displayValue = '…' + value.slice(start);
+          displayValue = '…' + shown.slice(start);
           displayCursor = cursor - start + 1;
         }
         const before = displayValue.slice(0, displayCursor);
@@ -933,5 +965,40 @@ export function helpLines(): string[] {
     'Prefix a command with ! to force interactive mode. Ctrl+C cancels a running non-interactive command.',
     '',
     'Tip: edit ~/.config/nexus-cli/config.json to change theme, editor, preview limits, Nerd Font icons and more.',
+    '',
+    '## Search (Ctrl+F or /search)',
+    '- Plain text searches file names and file contents recursively.',
+    '- name:config          match file names',
+    '- type:ts              match a file extension',
+    '- content:apiKey       search inside text files',
+    '- size:>1M             size comparisons (> < >= <= =), ranges with 10K..2M',
+    '- Combine terms, for example: name:config type:json content:token',
+    '- Select a result with Enter to jump to its directory and file.',
+    '',
+    '## AI commands',
+    '- /agent               enter agent mode (first run asks for provider, endpoint, model, key)',
+    '- /agent <instruction> run one instruction immediately (read/write/copy/move/delete files, exec, web, chmod)',
+    '- /chat                talk to the model using your personality/memory files',
+    '- /exit                leave agent/chat mode and return to the shell',
+    '- /new                 clear the current agent or chat conversation',
+    '- /ai status|setup|model <name>|endpoint <url>|key|image <model>|improve <mode>|search on|off',
+    '- /skills              list loaded skills',
+    '- /permissions         list saved permissions; /permissions reset clears them',
+    '- /vault list|set <name>|remove <name>   store credentials with 0600 permissions',
+    '- /memory              edit the long-term memory file',
+    '',
+    '## Web UI',
+    '- /web                 start the browser UI; first use sets or generates a password',
+    '- /web off             disable the web UI',
+    '- /web reset           set a new password',
+    '- /web port <n>        change the port (default 8787)',
+    '',
+    '## Agent files (customisable in ~/.config/nexus-cli/ai.json)',
+    '- projects/           agent workspace by default',
+    '- skills/             reusable Markdown instructions injected into the system prompt',
+    '- tools/              executable custom tools callable by the agent',
+    '- memory/             long-term memory files',
+    '- vault/              credentials, written with 0600 permissions',
+    '- personality.md      the agent and chat personality',
   ];
 }

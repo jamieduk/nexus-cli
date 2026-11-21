@@ -3,6 +3,7 @@
 export type SortKey = 'name' | 'size' | 'date' | 'type';
 export type SortDirection = 'asc' | 'desc';
 export type FocusTarget = 'files' | 'shell';
+export type ShellMode = 'shell' | 'agent' | 'chat';
 export type ThemeName = 'tokyo-night' | 'nord' | 'mono';
 export type PreviewKind =
   | 'text'
@@ -32,6 +33,7 @@ export interface FileItem {
   extension: string;
   icon: string;
   target?: string;
+  isParent?: boolean;
 }
 
 export interface PreviewMeta {
@@ -79,7 +81,7 @@ export interface BashProfile {
   loadedAt: number;
 }
 
-export type ShellLineKind = 'command' | 'output' | 'error' | 'info';
+export type ShellLineKind = 'command' | 'output' | 'error' | 'info' | 'agent' | 'tool' | 'agent-error';
 
 export interface ShellLine {
   text: string;
@@ -100,6 +102,7 @@ export interface ShellState {
   spinner: number;
   lastExitCode: number | null;
   lastDurationMs: number | null;
+  mode: ShellMode;
 }
 
 export interface ShellResult {
@@ -175,6 +178,7 @@ export interface ModalState {
   selected: number;
   scroll: number;
   lines: string[];
+  secret?: boolean;
 }
 
 export type KeyName =

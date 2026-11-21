@@ -1,4 +1,4 @@
-# Nexus CLI/FM v1.0.0
+# Nexus CLI/FM v1.0.1
 
 https://github.com/jamieduk/nexus-cli
 
@@ -114,7 +114,8 @@ See `launcher.txt` for desktop-icon setup, terminal-specific Exec lines, and the
 | `F6` | Delete tagged items (confirmation) |
 | `F7` | Create a directory |
 | `F8`, `Ctrl+O` | Switch focus between files and the shell |
-| `F9` | Actions menu (sorting, hidden files, theme, Nerd Fonts, refresh, reload bash profile, about, quit) |
+| `F9` | Actions menu (sorting, hidden files, theme, Nerd Fonts, search, AI modes, web UI, refresh, about, quit) |
+| `Ctrl+F` | Recursive file search (name, type, size or content) |
 | `F10`, `Ctrl+Q` | Quit. Use `Ctrl+Q` if your desktop/window manager captures `F10`. |
 
 ### File manager
@@ -125,6 +126,7 @@ See `launcher.txt` for desktop-icon setup, terminal-specific Exec lines, and the
 | `←`/`h` or `Backspace`/`u` | Parent directory |
 | `→`/`l` | Open the highlighted directory |
 | `Enter` | Open a directory, or view a file |
+| `Enter` on `../` | Go to the parent directory (the `../` entry is always at the top) |
 | `Space` | Tag/un-tag the focused item and advance (multi-select) |
 | `Home`/`End` or `g`/`G` | First/last item |
 | `PageUp`/`PageDown` | Page through the list |
@@ -184,6 +186,139 @@ Prefix any command with `!` to force interactive mode even when detection is uns
 ```
 
 While an interactive command is running, the terminal belongs to that program. Its output is not copied into the shell pane.
+
+---
+
+## Search
+
+Press `Ctrl+F` in the file pane or use `/search` from the shell. Search is recursive
+from the current directory and understands field filters:
+
+```text
+report                       name or file contents
+name:config type:json        name and extension
+content:apiKey type:ts       text inside matching files
+type:pdf size:>1M            extension and size comparison
+size:10K..2M                 inclusive size range
+```
+
+Supported keys: `name:` (or `file:`), `type:` (or `ext:`), `content:`, `size:`, and
+`regex:` to treat the query as a regular expression. Select a result with Enter to
+jump to its directory and select the file.
+
+The `.git`, `node_modules`, caches and similar heavy directories are skipped while
+searching. Content search reads text files up to 2 MiB.
+
+---
+
+## AI agent and chat
+
+Run `/agent` to enter agent mode. The first use asks for:
+
+1. Provider name (for example `ollama`, `openai`, `openrouter`, `lm-studio`).
+2. OpenAI-compatible endpoint URL (for example `http://localhost:11434`).
+3. Model name (blank uses `deepseek-v4.1-flash`).
+4. API key (blank is fine for local models).
+5. An optional image-generation model.
+6. Self-improvement policy: guided (recommended), auto, or off.
+
+Configuration is stored in `~/.config/nexus-cli/ai.json` with mode `0600`.
+Nexus sends a stable per-conversation `x-opencode-session` header (required by
+OpenCode Go/Zen), a real `User-Agent`, `x-opencode-client`, `x-session-id` and
+`x-client-request-id`. A new conversation via `/new` rotates the session id.
+
+You can add provider-specific headers with `extraHeaders` in `ai.json`:
+
+```json
+{
+  "extraHeaders": {
+    "x-opencode-session": "ses_customstableid",
+    "X-Custom-Header": "value"
+  }
+}
+```
+
+After setup, type an instruction directly:
+
+```text
+/agent read package.json and add a test script
+/agent find every TODO under src and summarise them
+/agent copy src/index.ts to src/index.ts.bak and make it executable
+```
+
+The agent runs immediately and uses real tools: read/write/edit files, copy, move,
+delete, list directories, search by name/type/size/content, execute shell commands,
+change permissions (including execute bits), fetch the web, ask you a clarifying
+question, remember facts, generate images, and access credentials.
+
+### Agent directories
+
+All paths are configurable in `ai.json`:
+
+```text
+~/.config/nexus-cli/projects/      agent workspace / generated files
+~/.config/nexus-cli/skills/        Markdown skills injected into the prompt
+~/.config/nexus-cli/tools/         executable custom tools
+~/.config/nexus-cli/memory/        long-term memory files (agent and chat)
+~/.config/nexus-cli/vault/         credentials, files written with 0600 permissions
+~/.config/nexus-cli/personality.md agent and chat personality
+```
+
+Add `.md` files to `skills/` to teach the agent new workflows, or let it create
+skills/tools itself when self-improvement is enabled. Custom tools are callable by
+the agent and receive their arguments as JSON in `NEXUS_TOOL_ARGS`.
+
+### Permissions
+
+Dangerous tools (write, copy, move, delete, execute, chmod, web access, vault
+access, image generation, self-improvement) ask for permission the first time.
+Choose **Always allow** to persist the grant in
+`~/.config/nexus-cli/permissions.json`; it is never asked again. You can choose
+**Deny and suggest an alternative** to tell the agent what to do instead.
+`/permissions` lists grants and `/permissions reset` clears them.
+
+### Chat
+
+`/chat` uses the same endpoint, model, personality and memory files, but no tools.
+It is useful for explanations, drafting and planning. `/new` clears the current
+conversation and `/exit` returns to the shell.
+
+---
+
+## Web UI
+
+Run `/web` for the first time. Nexus asks for a password (or generates a strong one
+when you leave it blank). The password is stored only as a scrypt hash in
+`~/.config/nexus-cli/web.json`.
+
+Once enabled, the server starts automatically every time Nexus starts:
+
+```text
+http://127.0.0.1:8787/
+```
+
+Commands:
+
+```text
+/web                 start / enable the web UI
+/web off             stop and disable it
+/web reset           set a new password
+/web status          show address and bind details
+/web port 9000       change the port
+```
+
+The web interface is password-protected with HttpOnly SameSite session cookies,
+rate-limited login attempts, strict security headers and a same-origin API. It binds
+to `127.0.0.1` by default. To expose it on a LAN, edit `host` in `web.json` and put
+it behind a TLS reverse proxy such as Caddy or nginx; do not expose plain HTTP.
+
+The browser header has a **Permissions** panel for one-time tool grants. Those
+grants are shared with the terminal agent and persisted in `permissions.json`.
+Outside that panel the browser agent cannot show interactive approval prompts, so
+grant what it needs there (or in the TUI) before asking it to modify the system.
+
+---
+
 
 ---
 
@@ -252,6 +387,18 @@ Extra environment variables:
 ```bash
 NEXUS_DEBUG=1          # diagnostics on stderr
 NEXUS_NERD_FONTS=1     # enable Nerd Font icons initially
+NEXUS_AI_PROVIDER=ollama
+NEXUS_AI_BASE_URL=http://localhost:11434
+NEXUS_AI_MODEL=deepseek-v4.1-flash
+NEXUS_AI_API_KEY=...
+```
+
+AI configuration, permissions and the web password live alongside the main config:
+
+```text
+~/.config/nexus-cli/ai.json
+~/.config/nexus-cli/permissions.json
+~/.config/nexus-cli/web.json
 ```
 
 ---
@@ -287,7 +434,7 @@ The code targets ES2022 ESM with NodeNext resolution. All imports use `.js` spec
 
 ```text
 src/
-  index.ts          application controller: key handling, operations, shell execution
+  index.ts          application controller: key handling, operations, slash commands, AI/web
   tui.ts            custom ANSI renderer, layout, key decoder, modals, viewer
   types.ts          shared interfaces (FileItem, Config, ShellState, Pane/view state…)
   file-manager.ts   directory traversal, metadata, sorting, previews, cp/mv/rm/mkdir
@@ -295,9 +442,17 @@ src/
   bash-loader.ts    safe inventory of ~/.bashrc aliases/functions/export names
   highlight.ts      lightweight syntax highlighter
   system-info.ts    CPU load, RAM, uptime, OS/hostname for the header
+  search.ts         recursive search by name, type, size, content and regex
   utils.ts          ANSI/width/padding helpers, palette, formatting
   config.ts         JSON config and last-cwd persistence
   version.ts        version constants
+  ai/types.ts       AI config, permissions, messages and agent event types
+  ai/settings.ts    ai.json, permissions, web config, skills, memory and vault paths
+  ai/client.ts      OpenAI-compatible chat/image client with cancellation
+  ai/tools.ts       agent tools: files, exec, chmod, web, vault, skills, images
+  ai/agent.ts       tool-calling agent loop and chat sessions
+  ai/permissions.ts one-time permission prompts and persistent grants
+  web/server.ts     password-protected web UI, sessions, login rate limiting
 install.sh          Ubuntu installer, Bun/Node build, /usr/local/bin install, shell integration
 create-launcher.sh  install the .desktop launcher in the app menu and on the Desktop
 nexus.desktop       ready-to-use desktop launcher template

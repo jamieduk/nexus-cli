@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,6 +10,30 @@ import { FileManager } from './file-manager.js';
 import { getSystemInfo } from './system-info.js';
 import { ShellHandler, isInteractiveCommand } from './shell-handler.js';
 import { Tui, helpLines } from './tui.js';
+import { parseSearchQuery, searchFiles } from './search.js';
+import { Agent } from './ai/agent.js';
+import { PermissionManager } from './ai/permissions.js';
+import {
+  defaultAIConfig,
+  ensureAgentAssets,
+  listSkills,
+  listVaultEntries,
+  loadAIConfig,
+  loadWebConfig,
+  saveAIConfig,
+  saveWebConfig,
+  writeVaultEntry,
+} from './ai/settings.js';
+import type {
+  AIConfig,
+  AgentEvent,
+  PermissionDecision,
+  PermissionOptionValue,
+  PermissionRequest,
+  WebUiConfig,
+} from './ai/types.js';
+import { DEFAULT_MODEL } from './ai/types.js';
+import { WebServer, generatePassword, hashPassword } from './web/server.js';
 import type {
   BashProfile,
   Config,
@@ -30,6 +55,7 @@ import {
   clamp,
   formatDuration,
   getPalette,
+  humanBytes,
   sanitizeCommandOutput,
   shellQuote,
   tildify,
@@ -78,8 +104,20 @@ Shell:
   Interactive commands take over the terminal automatically.
   Prefix a command with ! to force interactive mode.
 
+Commands:
+  /agent [prompt]   AI agent mode with files, exec, web, vault tools
+  /chat [prompt]    chat mode using your personality and memory
+  /search <query>   recursive file search: name:, type:, size:, content:
+  /web [on|off|reset|status|port <n>]   password-protected web UI
+  /ai status|setup|model|endpoint|key|image|improve|search
+  /skills /permissions /vault /memory /new /exit
+  Ctrl+F            search files (file pane)
+
 Config:
   ${path.join(configDir(), 'config.json')}
+  ${path.join(configDir(), 'ai.json')}
+  ${path.join(configDir(), 'permissions.json')}
+  ${path.join(configDir(), 'web.json')}
 `;
 }
 
@@ -245,7 +283,7 @@ class NexusApp {
   private bashProfile: BashProfile;
   private system: SystemInfo;
   private shell: ShellState;
-  private focus: FocusTarget = 'files';
+  private focus: FocusTarget = 'shell';
   private modal: ModalState | null = null;
   private modalAction: 'copy' | 'move' | 'mkdir' | 'filter' | null = null;
   private pendingConfirm: (() => void | Promise<void>) | null = null;
@@ -261,6 +299,17 @@ class NexusApp {
   private lastSystemAt = 0;
   private commandCache: string[] | null = null;
   private startDir: string;
+  private ai: AIConfig;
+  private permissions: PermissionManager;
+  private agent: Agent | null = null;
+  private chatAgent: Agent | null = null;
+  private webConfig: WebUiConfig | null = null;
+  private webServer: WebServer | null = null;
+  private pendingInput: ((value: string | null) => void) | null = null;
+  private pendingChoice: ((value: string | null) => void) | null = null;
+  private searchResults: string[] = [];
+  private agentAbort: AbortController | null = null;
+  private setupRunning = false;
 
   constructor(startDir: string, config: Config) {
     this.startDir = path.resolve(startDir);
@@ -271,6 +320,10 @@ class NexusApp {
     this.shellHandler.setTimeoutMs(config.commandTimeoutMs);
     this.bashProfile = loadBashProfile();
     this.system = getSystemInfo();
+    this.ai = loadAIConfig();
+    this.permissions = new PermissionManager((request, options) => this.requestPermissionModal(request, options));
+    this.webConfig = loadWebConfig();
+    ensureAgentAssets(this.ai);
     this.preview = this.fm.preview(null, this.palette, this.config);
     this.shell = {
       cwd: this.fm.cwd,
@@ -286,6 +339,7 @@ class NexusApp {
       spinner: 0,
       lastExitCode: null,
       lastDurationMs: null,
+      mode: 'shell',
     };
     this.tui = new Tui(
       (key) => { void this.handleKey(key); },
@@ -306,11 +360,14 @@ class NexusApp {
     if (this.bashProfile.errors.length > 0) {
       this.setStatus(this.bashProfile.errors[0] ?? 'Bash profile warning', 'warn', 6500);
     } else {
-      this.setStatus('F1 help · Tab completes · F8 focus', 'normal', 5000);
+      this.setStatus('Shell focused · type /agent, /chat, /search or a command · F8 files', 'normal', 6000);
     }
     this.updatePreview();
     this.render();
     this.intervals.push(setInterval(() => this.tick(), 200));
+    if (this.webConfig?.enabled === true) {
+      void this.startWeb(false);
+    }
   }
 
   isInteractiveActive(): boolean {
@@ -327,8 +384,14 @@ class NexusApp {
     if (this.statusTimer) clearTimeout(this.statusTimer);
     for (const interval of this.intervals) clearInterval(interval);
     this.intervals = [];
+    if (this.agentAbort) this.agentAbort.abort();
     if (this.interactiveActive) this.shellHandler.interruptInteractive();
     if (this.shell.running) this.shellHandler.cancel();
+    if (this.webServer) {
+      const server = this.webServer;
+      this.webServer = null;
+      void server.stop();
+    }
     try {
       this.tui.stop();
     } catch {
@@ -525,6 +588,10 @@ class NexusApp {
       { label: `Nerd Font icons: ${this.config.nerdFonts ? 'on' : 'off'}`, value: 'nerd' },
       { label: `Theme: ${this.config.theme}`, value: 'theme', description: 'Cycle Tokyo Night / Nord / Mono' },
       { label: `Confirm delete: ${this.config.confirmDelete ? 'on' : 'off'}`, value: 'confirm-delete' },
+      { label: 'Search files… (Ctrl+F)', value: 'search', description: 'Name, type, size or content' },
+      { label: 'AI agent mode', value: 'agent', description: 'Open /agent' },
+      { label: 'AI chat mode', value: 'chat', description: 'Open /chat' },
+      { label: 'Web UI', value: 'web', description: 'Start or inspect the browser interface' },
       { label: 'Refresh directory', value: 'refresh' },
       { label: 'Reload bash profile', value: 'reload-bash' },
       { label: 'Help', value: 'help' },
@@ -563,7 +630,84 @@ class NexusApp {
     this.modal = null;
     this.modalAction = null;
     this.pendingConfirm = null;
+    const input = this.pendingInput;
+    this.pendingInput = null;
+    if (input) input(null);
+    const choice = this.pendingChoice;
+    this.pendingChoice = null;
+    if (choice) choice(null);
     this.render();
+  }
+
+  private requestInputModal(options: {
+    title: string;
+    message: string;
+    hint?: string;
+    defaultValue?: string;
+    secret?: boolean;
+  }): Promise<string | null> {
+    return new Promise((resolve) => {
+      const modal = modalBase('input', options.title);
+      modal.message = options.message;
+      modal.hint = options.hint ?? 'Enter to confirm · Esc to cancel';
+      modal.input = options.defaultValue ?? '';
+      modal.cursor = modal.input.length;
+      modal.secret = options.secret === true;
+      this.pendingInput = (value) => {
+        this.pendingInput = null;
+        resolve(value);
+      };
+      this.modal = modal;
+      this.render();
+    });
+  }
+
+  private requestChoiceModal(
+    title: string,
+    message: string,
+    options: MenuOption[],
+  ): Promise<string | null> {
+    return new Promise((resolve) => {
+      const modal = modalBase('menu', title);
+      modal.message = message;
+      modal.options = options;
+      modal.hint = '↑/↓ select · Enter confirm · Esc cancel';
+      this.pendingChoice = (value) => {
+        this.pendingChoice = null;
+        resolve(value);
+      };
+      this.modal = modal;
+      this.render();
+    });
+  }
+
+  private async showMessageModal(title: string, message: string): Promise<void> {
+    await this.requestChoiceModal(title, message, [{ label: 'OK', value: 'ok' }]);
+  }
+
+  private async requestPermissionModal(
+    request: PermissionRequest,
+    options: Array<{ label: string; value: PermissionOptionValue }>,
+  ): Promise<PermissionDecision> {
+    const value = await this.requestChoiceModal(
+      `Permission · ${request.title}`,
+      `${request.description}\n\nChoose "Always allow" to remember this across sessions, or deny and suggest another approach.`,
+      options.map((option) => ({
+        label: option.label,
+        value: option.value,
+        danger: option.value === 'deny' || option.value === 'suggest',
+      })),
+    );
+    if (value === 'always' || value === 'once') return { choice: value };
+    if (value === 'suggest') {
+      const reason = await this.requestInputModal({
+        title: 'Suggest an alternative',
+        message: 'Tell the agent what to do instead. It will see this note and adjust its approach.',
+        hint: 'Enter send · Esc skip',
+      });
+      return { choice: 'deny', reason: reason?.trim() ?? '' };
+    }
+    return { choice: 'deny' };
   }
 
   private openInput(action: 'copy' | 'move' | 'mkdir' | 'filter'): void {
@@ -633,6 +777,8 @@ class NexusApp {
 
   private async applyModalInput(action: 'copy' | 'move' | 'mkdir' | 'filter', value: string): Promise<void> {
     if (action === 'filter') {
+      const command = value.trim();
+      if (command.startsWith('/') && await this.handleSlashCommand(command)) return;
       this.fm.setFilter(value);
       this.setStatus(value === '' ? 'Filter cleared.' : `Filter: ${value}`, 'normal', 3000);
       this.updatePreview();
@@ -707,6 +853,26 @@ class NexusApp {
   }
 
   private handleMenu(value: string): void {
+    if (value.startsWith('search:')) {
+      const index = Number(value.slice('search:'.length));
+      const target = this.searchResults[index];
+      if (!target) {
+        this.setStatus('Search result is no longer available.', 'warn', 3000);
+        return;
+      }
+      try {
+        const stat = fs.statSync(target);
+        const dir = stat.isDirectory() ? target : path.dirname(target);
+        if (this.changeCwd(dir) && !stat.isDirectory()) {
+          this.fm.selectPath(target);
+          this.updatePreview();
+        }
+        this.setStatus(`Opened ${tildify(target)}`, 'good', 3000);
+      } catch (error) {
+        this.setStatus(`Cannot open ${target}: ${error instanceof Error ? error.message : String(error)}`, 'bad', 5000);
+      }
+      return;
+    }
     switch (value) {
       case 'sort-name':
       case 'sort-size':
@@ -775,6 +941,18 @@ class NexusApp {
         this.setStatus(this.config.confirmDelete ? 'Delete confirmation enabled.' : 'Delete confirmation disabled.', 'warn', 3000);
         this.render();
         break;
+      case 'search':
+        void this.openSearch('');
+        break;
+      case 'agent':
+        void this.handleSlashCommand('/agent');
+        break;
+      case 'chat':
+        void this.handleSlashCommand('/chat');
+        break;
+      case 'web':
+        void this.handleWebCommand('status');
+        break;
       case 'refresh':
         this.fm.refresh();
         this.updatePreview();
@@ -825,6 +1003,15 @@ class NexusApp {
       else if (key.name === 'end') modal.selected = Math.max(0, modal.options.length - 1);
       else if (key.name === 'enter') {
         const option = modal.options[modal.selected];
+        if (this.pendingChoice) {
+          const resolver = this.pendingChoice;
+          this.pendingChoice = null;
+          this.modal = null;
+          this.modalAction = null;
+          this.render();
+          resolver(option?.value ?? null);
+          return;
+        }
         this.closeModal();
         if (option) this.handleMenu(option.value);
         return;
@@ -839,6 +1026,15 @@ class NexusApp {
       if (key.name === 'enter') {
         const action = this.modalAction;
         const value = modal.input;
+        if (this.pendingInput) {
+          const resolver = this.pendingInput;
+          this.pendingInput = null;
+          this.modal = null;
+          this.modalAction = null;
+          this.render();
+          resolver(value);
+          return;
+        }
         this.closeModal();
         if (action) await this.applyModalInput(action, value);
         return;
@@ -873,8 +1069,13 @@ class NexusApp {
   private async handleShellKey(key: KeyEvent): Promise<void> {
     if (this.shell.running) {
       if (key.name === 'ctrl-c') {
-        this.shellHandler.cancel();
-        this.setStatus('Sending interrupt…', 'warn', 2500);
+        if (this.agentAbort) {
+          this.agentAbort.abort();
+          this.setStatus('Cancelling agent…', 'warn', 2500);
+        } else {
+          this.shellHandler.cancel();
+          this.setStatus('Sending interrupt…', 'warn', 2500);
+        }
       } else if (key.name === 'pageup') {
         this.shell.outputScroll = clamp(this.shell.outputScroll + 6, 0, this.shell.output.length);
         this.render();
@@ -988,6 +1189,8 @@ class NexusApp {
       'true', 'type', 'typeset', 'ulimit', 'umask', 'unalias', 'unset', 'wait',
       'if', 'then', 'else', 'elif', 'fi', 'for', 'while', 'until', 'do', 'done', 'case',
       'esac', 'function', 'select', 'in', 'time', 'coproc', '[[', ']]',
+      '/agent', '/chat', '/search', '/find', '/web', '/ai', '/skills', '/permissions',
+      '/vault', '/memory', '/new', '/exit', '/help', '/clear', '/status', '/setup',
     ]);
     for (const name of this.bashProfile.aliases.keys()) names.add(name);
     for (const name of this.bashProfile.functions) names.add(name);
@@ -1028,6 +1231,10 @@ class NexusApp {
 
   private completionMatches(prefix: string, commandPosition: boolean, directoryOnly: boolean): { matches: string[]; command: boolean } {
     const pathLike = prefix.includes('/') || prefix.startsWith('~') || prefix.startsWith('./') || prefix.startsWith('../');
+    if (commandPosition && prefix.startsWith('/') && !prefix.slice(1).includes('/')) {
+      const matches = this.commandNames().filter((name) => name.startsWith(prefix));
+      if (matches.length > 0) return { matches, command: true };
+    }
     if (commandPosition && !pathLike) {
       const matches = this.commandNames().filter((name) => name.startsWith(prefix));
       return { matches, command: true };
@@ -1148,6 +1355,10 @@ class NexusApp {
     this.shell.cursor = 0;
     this.shell.outputScroll = 0;
 
+    if (raw.startsWith('/')) {
+      const handled = await this.handleSlashCommand(raw);
+      if (handled) return;
+    }
     if (/^(exit|logout)(?:\s+\d+)?$/.test(raw)) {
       this.shutdown(0);
       return;
@@ -1156,6 +1367,10 @@ class NexusApp {
       this.shell.output = [];
       this.setStatus('Shell output cleared.', 'normal', 1800);
       this.render();
+      return;
+    }
+    if (this.shell.mode !== 'shell') {
+      await this.runAgentTurn(raw, this.shell.mode);
       return;
     }
 
@@ -1253,6 +1468,743 @@ class NexusApp {
     this.render();
   }
 
+  private getAgent(): Agent {
+    if (!this.agent) {
+      this.agent = new Agent({
+        config: this.ai,
+        permissions: this.permissions,
+        cwd: this.shell.cwd,
+      });
+    }
+    return this.agent;
+  }
+
+  private getChatAgent(): Agent {
+    if (!this.chatAgent) {
+      this.chatAgent = new Agent({
+        config: this.ai,
+        permissions: this.permissions,
+        cwd: this.shell.cwd,
+      });
+    }
+    return this.chatAgent;
+  }
+
+  private async ensureAIConfigured(): Promise<boolean> {
+    if (this.ai.initialized) {
+      ensureAgentAssets(this.ai);
+      return true;
+    }
+    return this.runAISetup(false);
+  }
+
+  private async runAISetup(force: boolean): Promise<boolean> {
+    if (this.setupRunning) {
+      this.setStatus('AI setup is already open.', 'warn', 2000);
+      return false;
+    }
+    this.setupRunning = true;
+    const base = { ...defaultAIConfig(), ...this.ai };
+    try {
+      const provider = await this.requestInputModal({
+        title: 'AI setup · 1/6 · Provider',
+        message: 'Which LLM provider do you want to use? (for example: ollama, openai, openrouter, lm-studio)',
+        defaultValue: base.provider,
+      });
+      if (provider === null) return false;
+      const endpoint = await this.requestInputModal({
+        title: 'AI setup · 2/6 · Endpoint',
+        message: 'OpenAI-compatible API endpoint URL.\nExamples: http://localhost:11434 (Ollama), https://api.openai.com',
+        defaultValue: base.baseUrl,
+      });
+      if (endpoint === null) return false;
+      const model = await this.requestInputModal({
+        title: 'AI setup · 3/6 · Model',
+        message: `Model name for the agent and chat.\nLeave blank for the default: ${DEFAULT_MODEL}`,
+        defaultValue: base.model || DEFAULT_MODEL,
+      });
+      if (model === null) return false;
+      const apiKey = await this.requestInputModal({
+        title: 'AI setup · 4/6 · API key',
+        message: 'API key for the endpoint. Leave blank for local models that do not require one.',
+        defaultValue: '',
+        secret: true,
+      });
+      if (apiKey === null) return false;
+      const imageModel = await this.requestInputModal({
+        title: 'AI setup · 5/6 · Image model',
+        message: 'Optional image generation model (for /agent image tasks).\nLeave blank to disable image generation.',
+        defaultValue: base.imageModel,
+      });
+      if (imageModel === null) return false;
+      const improve = await this.requestChoiceModal(
+        'AI setup · 6/6 · Self-improvement',
+        'Should the agent be allowed to propose and create its own skills/tools?\n\nGuided: ask you before every change (recommended).\nAuto: allow improvements automatically.\nOff: disable self-improvement.',
+        [
+          { label: 'Guided (recommended)', value: 'guided', description: 'Explain and ask before each change' },
+          { label: 'Auto allow', value: 'auto', description: 'Create skills/tools without prompting' },
+          { label: 'Off', value: 'off', description: 'Never self-modify' },
+        ],
+      );
+      if (improve === null) return false;
+
+      this.ai.provider = provider.trim() || base.provider;
+      this.ai.baseUrl = endpoint.trim() || base.baseUrl;
+      this.ai.model = model.trim() || DEFAULT_MODEL;
+      if (apiKey.trim() !== '' || !force) this.ai.apiKey = apiKey.trim();
+      this.ai.imageModel = imageModel.trim();
+      this.ai.selfImprove = improve === 'auto' || improve === 'off' ? improve : 'guided';
+      this.ai.initialized = true;
+      ensureAgentAssets(this.ai);
+      saveAIConfig(this.ai);
+      this.agent = null;
+      this.chatAgent = null;
+      this.appendOutput([
+        { kind: 'info', text: `AI ready · ${this.ai.provider} · ${this.ai.model}` },
+        { kind: 'info', text: `Skills: ${this.ai.skillsDir} · Projects: ${this.ai.projectsDir} · Vault: ${this.ai.vaultDir}` },
+      ]);
+      this.setStatus('AI configured. Use /agent or /chat.', 'good', 5000);
+      return true;
+    } finally {
+      this.setupRunning = false;
+    }
+  }
+
+  private async handleSlashCommand(raw: string): Promise<boolean> {
+    const match = /^\/([A-Za-z][A-Za-z0-9_-]*)(?:\s+([\s\S]*))?$/.exec(raw);
+    if (!match) return false;
+    const command = (match[1] ?? '').toLowerCase();
+    const rest = (match[2] ?? '').trim();
+    const known = new Set([
+      'agent', 'chat', 'exit', 'quit', 'back', 'new', 'reset', 'help', 'search', 'find',
+      'web', 'ai', 'model', 'image', 'skills', 'permissions', 'memory', 'vault', 'clear',
+      'setup', 'status',
+    ]);
+    if (!known.has(command)) return false;
+
+    switch (command) {
+      case 'agent': {
+        if (!(await this.ensureAIConfigured())) return true;
+        if (this.shell.mode !== 'agent') {
+          this.shell.mode = 'agent';
+          this.appendOutput([{ kind: 'info', text: 'Agent mode. Describe what to do, or type /exit to return to the shell.' }]);
+          this.setStatus('Agent mode ready.', 'good', 3000);
+        }
+        this.focus = 'shell';
+        if (rest !== '') await this.runAgentTurn(rest, 'agent');
+        else this.render();
+        return true;
+      }
+      case 'chat': {
+        if (!(await this.ensureAIConfigured())) return true;
+        if (this.shell.mode !== 'chat') {
+          this.shell.mode = 'chat';
+          this.appendOutput([{ kind: 'info', text: 'Chat mode. Talk to the model; it uses your personality and memory files. /exit returns to the shell.' }]);
+          this.setStatus('Chat mode ready.', 'good', 3000);
+        }
+        this.focus = 'shell';
+        if (rest !== '') await this.runAgentTurn(rest, 'chat');
+        else this.render();
+        return true;
+      }
+      case 'exit':
+      case 'back':
+        if (this.shell.mode !== 'shell') {
+          this.shell.mode = 'shell';
+          this.appendOutput([{ kind: 'info', text: 'Returned to shell mode.' }]);
+          this.setStatus('Shell mode.', 'normal', 2500);
+          this.render();
+          return true;
+        }
+        this.shutdown(0);
+        return true;
+      case 'quit':
+        this.shutdown(0);
+        return true;
+      case 'new':
+      case 'reset':
+        if (this.shell.mode === 'chat') this.chatAgent?.reset();
+        else this.agent?.reset();
+        this.appendOutput([{ kind: 'info', text: `${this.shell.mode === 'chat' ? 'Chat' : 'Agent'} conversation cleared.` }]);
+        this.setStatus('Conversation reset.', 'good', 2500);
+        return true;
+      case 'clear':
+        this.shell.output = [];
+        this.shell.outputScroll = 0;
+        this.setStatus('Shell output cleared.', 'normal', 1800);
+        this.render();
+        return true;
+      case 'help':
+        this.openHelp();
+        return true;
+      case 'search':
+      case 'find':
+        await this.openSearch(rest);
+        return true;
+      case 'web':
+        await this.handleWebCommand(rest);
+        return true;
+      case 'ai':
+      case 'setup':
+        await this.handleAICommand(command === 'setup' ? 'setup' : rest);
+        return true;
+      case 'model':
+        await this.handleAICommand(rest === '' ? 'model' : `model ${rest}`);
+        return true;
+      case 'image':
+        await this.handleAICommand(rest === '' ? 'image' : `image ${rest}`);
+        return true;
+      case 'skills':
+        await this.handleAICommand('skills');
+        return true;
+      case 'permissions':
+        this.showPermissions(rest);
+        return true;
+      case 'memory':
+        await this.handleAICommand(rest === 'edit' ? 'memory edit' : 'memory');
+        return true;
+      case 'vault':
+        await this.handleVaultCommand(rest);
+        return true;
+      case 'status': {
+        const lines = [
+          `mode: ${this.shell.mode}`,
+          `cwd: ${this.shell.cwd}`,
+          `AI: ${this.ai.initialized ? `${this.ai.provider} · ${this.ai.model}` : 'not configured'}`,
+          `web: ${this.webServer ? this.webServer.address : this.webConfig?.enabled ? 'enabled (not running)' : 'off'}`,
+        ];
+        this.appendOutput(lines.map((text) => ({ kind: 'info' as const, text })));
+        this.render();
+        return true;
+      }
+      default:
+        return false;
+    }
+  }
+
+  private async runAgentTurn(prompt: string, mode: 'agent' | 'chat'): Promise<void> {
+    if (this.shell.running) {
+      this.setStatus('Already running. Press Ctrl+C to cancel.', 'warn', 2500);
+      return;
+    }
+    if (!this.ai.initialized) {
+      this.setStatus('Configure AI first with /agent.', 'warn', 3000);
+      return;
+    }
+    const agent = mode === 'agent' ? this.getAgent() : this.getChatAgent();
+    this.appendOutput([{ kind: 'command', text: `/${mode} ${prompt}` }]);
+    this.shell.running = true;
+    this.shell.runningCommand = `${mode}: ${prompt}`;
+    this.shell.spinner = 0;
+    this.shell.lastExitCode = null;
+    this.shell.outputScroll = 0;
+    const controller = new AbortController();
+    this.agentAbort = controller;
+    let lastAssistant = '';
+    const emit = (event: AgentEvent): void => {
+      if (event.kind === 'assistant') {
+        lastAssistant = event.text;
+        const lines = event.text.split('\n');
+        this.appendOutput([
+          { kind: 'info', text: '◆ Nexus' },
+          ...lines.map((text) => ({ kind: 'agent' as const, text })),
+          { kind: 'info', text: '' },
+        ]);
+        this.render();
+      } else if (event.kind === 'tool-start') {
+        this.appendOutput([{ kind: 'tool', text: `  ⚙ ${event.tool ?? 'tool'} · ${event.text}` }]);
+        this.render();
+      } else if (event.kind === 'tool-result') {
+        const lines = event.text.split('\n').slice(0, 14);
+        const text = lines.join('\n') + (event.text.split('\n').length > 14 ? '\n  …' : '');
+        this.appendOutput([{ kind: event.ok === false ? 'agent-error' : 'tool', text: (event.ok === false ? '  ✕ ' : '  ✓ ') + text }]);
+        this.render();
+      } else if (event.kind === 'info') {
+        this.appendOutput([{ kind: 'info', text: event.text }]);
+        this.render();
+      } else if (event.kind === 'error') {
+        this.appendOutput([{ kind: 'agent-error', text: event.text }]);
+        this.render();
+      }
+    };
+    try {
+      const reply = await agent.send(prompt, mode, {
+        cwd: this.shell.cwd,
+        signal: controller.signal,
+        onEvent: emit,
+        askUser: (question) => this.requestInputModal({
+          title: 'Agent question',
+          message: question,
+          hint: 'Answer · Enter submit · Esc skip',
+        }),
+      });
+      if (reply !== '' && reply !== lastAssistant) {
+        this.appendOutput([{ kind: 'agent', text: reply }, { kind: 'info', text: '' }]);
+      }
+      this.shell.lastExitCode = 0;
+      this.setStatus(mode === 'agent' ? 'Agent finished.' : 'Chat reply ready.', 'good', 3000);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.shell.lastExitCode = 1;
+      this.appendOutput([{ kind: 'agent-error', text: `✕ ${message}` }]);
+      this.setStatus(message, 'bad', 6000);
+    } finally {
+      this.agentAbort = null;
+      this.shell.running = false;
+      this.shell.runningCommand = '';
+      this.render();
+    }
+  }
+
+  private async openSearch(rawQuery: string): Promise<void> {
+    let query = rawQuery.trim();
+    if (query === '') {
+      const answer = await this.requestInputModal({
+        title: 'Search files',
+        message: 'Search recursively from the current directory.\n\nExamples:\n  report                 name or content\n  name:config type:json\n  content:apiKey type:ts\n  type:pdf size:>1M\n  size:10K..2M',
+        hint: 'Search query · Enter search · Esc cancel',
+      });
+      if (answer === null) return;
+      query = answer.trim();
+    }
+    if (query === '') {
+      this.setStatus('Search query was empty.', 'warn', 2500);
+      return;
+    }
+    this.setStatus(`Searching “${query}”…`, 'warn', 0);
+    try {
+      const options = parseSearchQuery(query, this.fm.cwd);
+      const hits = await searchFiles({ ...options, maxResults: 300, includeHidden: this.fm.showHidden });
+      if (hits.length === 0) {
+        this.setStatus('No matching files.', 'warn', 3500);
+        return;
+      }
+      this.searchResults = hits.map((hit) => hit.path);
+      const modal = modalBase('menu', `Search · ${hits.length} result${hits.length === 1 ? '' : 's'}`);
+      modal.message = `Query: ${query}`;
+      modal.options = hits.map((hit, index) => {
+        const relative = path.relative(this.fm.cwd, hit.path) || hit.name;
+        const where = hit.line !== undefined ? `:${hit.line}` : '';
+        const snippet = hit.snippet ?? '';
+        return {
+          label: `${hit.isDir ? '▸' : hit.matched === 'content' ? '◈' : '·'} ${relative}${where}`,
+          value: `search:${index}`,
+          description: `${hit.isDir ? 'directory' : humanBytes(hit.size).trim()}${snippet ? ` · ${snippet}` : ''}`,
+        };
+      });
+      modal.hint = '↑/↓ select · Enter open · Esc close';
+      this.modal = modal;
+      this.setStatus(`${hits.length} result${hits.length === 1 ? '' : 's'}.`, 'good', 3000);
+      this.render();
+    } catch (error) {
+      this.setStatus(`Search failed: ${error instanceof Error ? error.message : String(error)}`, 'bad', 6000);
+    }
+  }
+
+  private showPermissions(rest: string): void {
+    if (rest.toLowerCase() === 'reset' || rest.toLowerCase() === 'clear') {
+      this.permissions.revokeAll();
+      this.appendOutput([{ kind: 'info', text: 'All saved agent permissions were cleared.' }]);
+      this.setStatus('Permissions cleared.', 'good', 3000);
+      return;
+    }
+    const grants = this.permissions.list();
+    if (grants.length === 0) {
+      this.appendOutput([{ kind: 'info', text: 'No saved permissions. The agent will ask when it needs one.' }]);
+    } else {
+      this.appendOutput([
+        { kind: 'info', text: 'Saved agent permissions (use /permissions reset to clear):' },
+        ...grants.map((grant) => ({ kind: 'info' as const, text: `  ${grant.id} · ${new Date(grant.grantedAt).toLocaleString()}` })),
+      ]);
+    }
+    this.render();
+  }
+
+  private async handleAICommand(rest: string): Promise<void> {
+    const [subRaw, ...tailParts] = rest.split(/\s+/);
+    const sub = (subRaw ?? '').toLowerCase();
+    const value = tailParts.join(' ').trim();
+    const save = (): void => {
+      saveAIConfig(this.ai);
+      this.agent = null;
+      this.chatAgent = null;
+    };
+    switch (sub) {
+      case '':
+      case 'status': {
+        const lines = [
+          `configured: ${this.ai.initialized ? 'yes' : 'no'}`,
+          `provider:   ${this.ai.provider}`,
+          `endpoint:   ${this.ai.baseUrl}`,
+          `model:      ${this.ai.model}`,
+          `image:      ${this.ai.imageModel || '(none)'}`,
+          `api key:    ${this.ai.apiKey ? 'set' : 'not set'}`,
+          `improve:    ${this.ai.selfImprove}`,
+          `web search: ${this.ai.webSearch ? 'on' : 'off'}`,
+          `personality:${this.ai.personalityPath}`,
+          `skills:     ${this.ai.skillsDir}`,
+          `projects:   ${this.ai.projectsDir}`,
+          `tools:      ${this.ai.toolsDir}`,
+          `memory:     ${this.ai.memoryDir}`,
+          `vault:      ${this.ai.vaultDir}`,
+        ];
+        this.appendOutput(lines.map((text) => ({ kind: 'info' as const, text })));
+        this.render();
+        return;
+      }
+      case 'setup':
+        await this.runAISetup(true);
+        return;
+      case 'model':
+        if (value === '') {
+          this.setStatus(`Model: ${this.ai.model}`, 'normal', 3000);
+          return;
+        }
+        this.ai.model = value;
+        this.ai.initialized = true;
+        save();
+        this.setStatus(`Model set to ${value}.`, 'good', 3000);
+        return;
+      case 'endpoint': {
+        if (value === '') {
+          this.setStatus(`Endpoint: ${this.ai.baseUrl}`, 'normal', 3000);
+          return;
+        }
+        this.ai.baseUrl = value;
+        this.ai.initialized = true;
+        save();
+        this.setStatus(`Endpoint set to ${value}.`, 'good', 3000);
+        return;
+      }
+      case 'key': {
+        const key = await this.requestInputModal({
+          title: 'AI API key',
+          message: 'Paste the API key for the configured endpoint. Leave blank to clear it.',
+          secret: true,
+          hint: 'Enter save · Esc cancel',
+        });
+        if (key === null) return;
+        this.ai.apiKey = key.trim();
+        this.ai.initialized = true;
+        save();
+        this.setStatus(this.ai.apiKey ? 'API key saved.' : 'API key cleared.', 'good', 3000);
+        return;
+      }
+      case 'image': {
+        if (value === '') {
+          const answer = await this.requestInputModal({
+            title: 'Image model',
+            message: 'Model used when the agent generates images. Leave blank to disable.',
+            defaultValue: this.ai.imageModel,
+          });
+          if (answer === null) return;
+          this.ai.imageModel = answer.trim();
+        } else {
+          this.ai.imageModel = value;
+        }
+        save();
+        this.setStatus(this.ai.imageModel ? `Image model: ${this.ai.imageModel}` : 'Image generation disabled.', 'good', 3000);
+        return;
+      }
+      case 'improve': {
+        if (value === 'auto' || value === 'guided' || value === 'off') {
+          this.ai.selfImprove = value;
+          save();
+          this.setStatus(`Self-improvement: ${value}.`, 'good', 3000);
+          return;
+        }
+        const choice = await this.requestChoiceModal(
+          'Self-improvement',
+          'Allow the agent to create skills, tools and personality updates?',
+          [
+            { label: 'Guided (recommended)', value: 'guided' },
+            { label: 'Auto allow', value: 'auto' },
+            { label: 'Off', value: 'off' },
+          ],
+        );
+        if (choice === null) return;
+        this.ai.selfImprove = choice === 'auto' || choice === 'off' ? choice : 'guided';
+        save();
+        this.setStatus(`Self-improvement: ${this.ai.selfImprove}.`, 'good', 3000);
+        return;
+      }
+      case 'search':
+      case 'websearch': {
+        const next = value === 'on' || value === 'off' ? value : this.ai.webSearch ? 'off' : 'on';
+        this.ai.webSearch = next === 'on';
+        save();
+        this.setStatus(`Web search ${this.ai.webSearch ? 'enabled' : 'disabled'}.`, 'good', 3000);
+        return;
+      }
+      case 'personality':
+        await this.openFileInEditor(this.ai.personalityPath);
+        return;
+      case 'memory':
+        if (value === 'edit' || value === '') {
+          await this.openFileInEditor(this.ai.memoryPath);
+          return;
+        }
+        this.appendOutput([{ kind: 'info', text: `Memory directory: ${this.ai.memoryDir}` }]);
+        this.render();
+        return;
+      case 'skills': {
+        const skills = listSkills(this.ai);
+        if (skills.length === 0) {
+          this.appendOutput([{ kind: 'info', text: `No skills found in ${this.ai.skillsDir}` }]);
+        } else {
+          this.appendOutput([
+            { kind: 'info', text: `Skills in ${this.ai.skillsDir}:` },
+            ...skills.map((skill) => ({ kind: 'info' as const, text: `  ${skill.name}${skill.custom ? ' (custom)' : ''} · ${skill.description}` })),
+          ]);
+        }
+        this.render();
+        return;
+      }
+      case 'permissions':
+        this.showPermissions(value);
+        return;
+      default:
+        this.setStatus(`Unknown /ai option: ${sub}. Try status, setup, model, endpoint, key, image, improve, search, personality, memory, skills.`, 'warn', 5000);
+        return;
+    }
+  }
+
+  private async handleVaultCommand(rest: string): Promise<void> {
+    const [subRaw, ...tail] = rest.split(/\s+/);
+    const sub = (subRaw ?? '').toLowerCase();
+    const name = tail.join(' ').trim();
+    if (sub === '' || sub === 'list') {
+      const entries = listVaultEntries(this.ai);
+      if (entries.length === 0) this.appendOutput([{ kind: 'info', text: `Vault is empty: ${this.ai.vaultDir}` }]);
+      else {
+        this.appendOutput([
+          { kind: 'info', text: `Vault entries in ${this.ai.vaultDir}:` },
+          ...entries.map((entry) => ({ kind: 'info' as const, text: `  ${entry.name} · ${new Date(entry.updatedAt).toLocaleString()}` })),
+        ]);
+      }
+      this.render();
+      return;
+    }
+    if (sub === 'set') {
+      if (name === '') {
+        this.setStatus('Usage: /vault set <name>', 'warn', 3000);
+        return;
+      }
+      const value = await this.requestInputModal({
+        title: `Vault · ${name}`,
+        message: 'Paste the credential or token. It is stored with 0600 permissions.',
+        secret: true,
+        hint: 'Enter save · Esc cancel',
+      });
+      if (value === null) return;
+      const file = writeVaultEntry(this.ai, name, value.trim());
+      this.appendOutput([{ kind: 'info', text: `Stored ${name} in ${file}` }]);
+      this.setStatus(`Vault entry ${name} saved.`, 'good', 3000);
+      return;
+    }
+    if (sub === 'remove' || sub === 'delete' || sub === 'rm') {
+      if (name === '') {
+        this.setStatus('Usage: /vault remove <name>', 'warn', 3000);
+        return;
+      }
+      const safe = name.replace(/[^A-Za-z0-9._-]/g, '-');
+      const file = path.join(this.ai.vaultDir, `${safe}.json`);
+      try {
+        fs.unlinkSync(file);
+        this.setStatus(`Removed vault entry ${name}.`, 'good', 3000);
+      } catch {
+        this.setStatus(`No vault entry named ${name}.`, 'warn', 3000);
+      }
+      return;
+    }
+    this.setStatus('Usage: /vault [list|set <name>|remove <name>]', 'warn', 4000);
+  }
+
+  private async handleWebCommand(rest: string): Promise<void> {
+    const parts = rest.split(/\s+/);
+    const sub = (parts[0] ?? '').toLowerCase();
+    if (sub === 'off' || sub === 'disable') {
+      if (this.webConfig) {
+        this.webConfig.enabled = false;
+        saveWebConfig(this.webConfig);
+      }
+      if (this.webServer) {
+        const server = this.webServer;
+        this.webServer = null;
+        await server.stop();
+      }
+      this.appendOutput([{ kind: 'info', text: 'Web UI disabled.' }]);
+      this.setStatus('Web UI disabled.', 'good', 3000);
+      return;
+    }
+    if (sub === 'status') {
+      const lines = [
+        `web ui: ${this.webConfig ? (this.webConfig.enabled ? 'enabled' : 'disabled') : 'not configured'}`,
+        `address: ${this.webServer ? this.webServer.address : '(not running)'}`,
+        `bind: ${this.webConfig ? `${this.webConfig.host}:${this.webConfig.port}` : '(none)'}`,
+      ];
+      this.appendOutput(lines.map((text) => ({ kind: 'info' as const, text })));
+      this.render();
+      return;
+    }
+    if (sub === 'port') {
+      const port = Number(parts[1]);
+      if (!Number.isFinite(port) || port < 1 || port > 65535) {
+        this.setStatus('Usage: /web port <1-65535>', 'warn', 3000);
+        return;
+      }
+      if (!this.webConfig) {
+        this.setStatus('Set a web password first with /web.', 'warn', 3000);
+        return;
+      }
+      const wasRunning = this.webServer !== null;
+      if (this.webServer) {
+        const server = this.webServer;
+        this.webServer = null;
+        await server.stop();
+      }
+      this.webConfig.port = port;
+      saveWebConfig(this.webConfig);
+      if (wasRunning) await this.startWeb(true);
+      this.setStatus(`Web port set to ${port}.`, 'good', 3000);
+      return;
+    }
+    if (sub === 'reset') {
+      if (!this.webConfig) {
+        await this.handleWebCommand('');
+        return;
+      }
+      const password = await this.promptWebPassword(true);
+      if (password === null) return;
+      this.webConfig.passwordHash = hashPassword(password.password, password.salt);
+      this.webConfig.salt = password.salt;
+      saveWebConfig(this.webConfig);
+      if (this.webConfig.enabled) {
+        if (this.webServer) {
+          const server = this.webServer;
+          this.webServer = null;
+          await server.stop();
+        }
+        await this.startWeb(true);
+      }
+      if (password.generated) {
+        this.appendOutput([{ kind: 'info', text: `New web password: ${password.password}` }]);
+        await this.showMessageModal(
+          'Save your new web UI password',
+          `New web UI password:\n\n    ${password.password}\n\nIt is stored only as a hash and cannot be shown again.`,
+        );
+      }
+      this.setStatus('Web password reset.', 'good', 4000);
+      return;
+    }
+    if (sub === 'on' || sub === '' || sub === 'start') {
+      if (!this.webConfig) {
+        const password = await this.promptWebPassword(false);
+        if (password === null) return;
+        this.webConfig = {
+          enabled: true,
+          host: '127.0.0.1',
+          port: 8787,
+          passwordHash: hashPassword(password.password, password.salt),
+          salt: password.salt,
+          createdAt: Date.now(),
+        };
+        saveWebConfig(this.webConfig);
+        if (password.generated) {
+          this.appendOutput([
+            { kind: 'info', text: `Web UI password (save this now): ${password.password}` },
+            { kind: 'info', text: 'The password is stored only as a hash; it cannot be shown again. Use /web reset to change it.' },
+          ]);
+          await this.showMessageModal(
+            'Save your web UI password',
+            `Web UI password:\n\n    ${password.password}\n\nIt is stored only as a hash and cannot be shown again. Use /web reset to change it.`,
+          );
+        }
+      } else {
+        this.webConfig.enabled = true;
+        saveWebConfig(this.webConfig);
+      }
+      await this.startWeb(true);
+      return;
+    }
+    this.setStatus('Usage: /web [on|off|status|reset|port <n>]', 'warn', 4000);
+  }
+
+  private async promptWebPassword(reset: boolean): Promise<{ password: string; salt: string; generated: boolean } | null> {
+    const answer = await this.requestInputModal({
+      title: reset ? 'Reset web UI password' : 'Nexus Web UI',
+      message: `${reset ? 'Enter a new password for the web UI.' : 'Set a password for the web UI.'}\nLeave blank to generate a strong password automatically.`,
+      secret: true,
+      hint: 'Enter confirm · Esc cancel',
+    });
+    if (answer === null) return null;
+    const trimmed = answer.trim();
+    if (trimmed === '') {
+      return { password: generatePassword(), salt: crypto.randomBytes(16).toString('hex'), generated: true };
+    }
+    if (trimmed.length < 6) {
+      this.setStatus('Password must be at least 6 characters.', 'warn', 3500);
+      return null;
+    }
+    return { password: trimmed, salt: crypto.randomBytes(16).toString('hex'), generated: false };
+  }
+
+  private async startWeb(announce: boolean): Promise<void> {
+    if (!this.webConfig) return;
+    if (this.webServer) {
+      if (announce) this.setStatus(`Web UI already at ${this.webServer.address}`, 'normal', 4000);
+      return;
+    }
+    const server = new WebServer({
+      aiConfig: this.ai,
+      webConfig: this.webConfig,
+      getCwd: () => this.shell.cwd,
+    });
+    try {
+      const url = await server.start();
+      this.webServer = server;
+      this.appendOutput([
+        { kind: 'info', text: `Web UI listening at ${url}` },
+        { kind: 'info', text: 'Open it in a browser and use the password you set. /web off disables it.' },
+      ]);
+      this.setStatus(`Web UI: ${url}`, 'good', 6000);
+    } catch (error) {
+      this.setStatus(`Web UI failed to start: ${error instanceof Error ? error.message : String(error)}`, 'bad', 7000);
+    }
+  }
+
+  private async openFileInEditor(file: string): Promise<void> {
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      if (!fs.existsSync(file)) fs.writeFileSync(file, '', { mode: 0o600 });
+    } catch (error) {
+      this.setStatus(`Cannot create ${file}: ${error instanceof Error ? error.message : String(error)}`, 'bad', 5000);
+      return;
+    }
+    let editor = this.config.editor.trim() || process.env.VISUAL || process.env.EDITOR || '';
+    if (editor === '') editor = executableOnPath('nano') ? 'nano' : executableOnPath('vi') ? 'vi' : '';
+    const editorName = editor.split(/\s+/)[0] ?? '';
+    if (editor === '' || executableOnPath(editorName) === null) {
+      this.setStatus('No editor found. Set $EDITOR or config.editor.', 'bad', 5000);
+      return;
+    }
+    this.tui.suspend();
+    const code = await new Promise<number>((resolve) => {
+      const child = spawn('bash', ['-c', `${editor} ${shellQuote(file)}`], {
+        cwd: this.shell.cwd,
+        stdio: 'inherit',
+        env: { ...process.env, NEXUS_CLI: '1' },
+      });
+      child.on('error', () => resolve(1));
+      child.on('close', (exitCode) => resolve(exitCode ?? 1));
+    });
+    this.tui.resume();
+    this.agent = null;
+    this.chatAgent = null;
+    this.setStatus(code === 0 ? `Edited ${tildify(file)}.` : `${editorName} exited with code ${code}.`, code === 0 ? 'good' : 'warn', 3000);
+    this.render();
+  }
+
   private async handleFileKey(key: KeyEvent): Promise<void> {
     const pageSize = Math.max(3, (process.stdout.rows || 24) - 10);
     switch (key.name) {
@@ -1296,6 +2248,9 @@ class NexusApp {
       case 'end':
         this.fm.selectLast();
         this.updatePreview();
+        break;
+      case 'ctrl-f':
+        await this.openSearch('');
         break;
       case 'space':
         this.fm.toggleMark();

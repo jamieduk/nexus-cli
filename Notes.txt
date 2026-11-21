@@ -72,12 +72,34 @@ nexus
 # Use page up and down keys for cli mode to see more of the view! Or maximise the window for full view mode!
 
 
+################################################# UPDATE ####################################################
 
 
+Implemented the full update set.
+Highlights
+- File search: Ctrl+F or /search with name:, type:, size:, content:, ranges like size:10K..2M, and regex support.
+- File pane now has a ../ parent entry at the top.
+- /agent setup wizard asks provider, endpoint, model, API key, image model, and self-improvement mode. Default model is deepseek-v4.1-flash.
+- Agent tools: read, write/edit, list, search, copy, move, delete, mkdir, chmod/executable bits, exec, web search/fetch, vault access, image generation, ask-user, remember, create skills/tools, and update personality.
+- /chat uses the same LLM, personality, and memory files without tools.
+- Persistent one-time permissions with Always allow, Allow once, Deny, and Deny + suggest alternative. Grants live in permissions.json.
+- Self-improvement supports guided/auto/off, including agent-created skills, tools, and personality updates.
+- Password-protected web UI via /web, /web off, /web reset, /web port <n>, /web status, with scrypt hashing, sessions, rate limiting, security headers, and a web Permissions panel.
+- Agent directories are created and configurable in ai.json:
+projects/, skills/, tools/, memory/, vault/, plus personality.md.
+- Vault entries are written with 0600 permissions.
+- Startup now focuses the shell so typing /agent works immediately; F8 switches to files.
+Verified
+- npm run typecheck, npm run build
+- TUI smoke tests for search, slash-command completion, agent mode, and permissions
+- Mock-LLM agent tool loop and persistent permission grant
+- Web login/authentication and permissions API
+- Rebuilt the local standalone ./nexus binary.
+Run with ./start.sh or ./nexus. To refresh an installed /usr/local/bin/nexus, rerun ./install.sh or ./export-ts.sh --yes.
 
 
-
-
+# For opencode-go endpoint url
+https://opencode.ai/zen/go/v1
 
 
 

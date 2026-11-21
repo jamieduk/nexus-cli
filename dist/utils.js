@@ -253,6 +253,17 @@ export function percent(part, total) {
         return 0;
     return clamp((part / total) * 100, 0, 100);
 }
+export function parseSize(value) {
+    const match = /^\s*(\d+(?:\.\d+)?)\s*([bkmgtp]?)\s*$/i.exec(value);
+    if (!match)
+        return null;
+    const amount = Number(match[1]);
+    if (!Number.isFinite(amount))
+        return null;
+    const unit = (match[2] ?? '').toLowerCase();
+    const powers = { '': 0, b: 0, k: 1, m: 2, g: 3, t: 4, p: 5 };
+    return Math.floor(amount * Math.pow(1024, powers[unit] ?? 0));
+}
 export const PALETTES = {
     'tokyo-night': {
         name: 'tokyo-night',
