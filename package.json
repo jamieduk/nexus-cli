@@ -1,0 +1,31 @@
+{
+  "name": "nexus-cli",
+  "version": "1.0.0",
+  "description": "Nexus \u2014 a dual-pane terminal file manager with an integrated bash prompt",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "nexus": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "src",
+    "install.sh",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && chmod +x dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js",
+    "dev": "npm run build && node dist/index.js",
+    "clean": "rm -rf dist"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  }
+}

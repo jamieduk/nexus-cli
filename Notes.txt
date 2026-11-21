@@ -1,0 +1,92 @@
+
+
+
+Built Nexus CLI/FM v1.0.0 in /home/jay/Documents/Scripts/AI/Opencode/Projects/DESKTOP-APPS/TS-Terminal:
+
+- Dual-pane file manager with previews, syntax highlighting, metadata, sorting, filtering, multi-select, and copy/move/delete/mkdir.
+
+- Integrated bash prompt sourcing ~/.bashrc, .bash_aliases, and .bash_functions, with aliases/functions/env support and bidirectional cd sync.
+
+- Interactive terminal handoff for vim/top/ssh/sudo/etc., help viewer, actions menu, themes, Nerd Font option, and ARM64 standalone Bun build.
+
+- Installer, launcher scripts, TypeScript config, README, and MIT license included.
+Run 
+
+./install.sh
+
+# to install /usr/local/bin/nexus plus optional shell integration, or
+
+./start.sh
+
+# from the project folder. Verified with typecheck/build, PTY UI smoke tests, alias/function/env execution, directory sync, interactive commands, and signal cancellation.
+
+# After you make changes and want to re-build or build from scratch
+
+./export-ts.sh --yes
+
+
+
+./install.sh
+==> Nexus CLI/FM installer
+    Project: /home/jay/Documents/Scripts/AI/Opencode/Projects/DESKTOP-APPS/TS-Terminal
+    Prefix:  /usr/local
+OK   Architecture: aarch64
+==> Installing system prerequisites
+OK   System prerequisites checked
+Bun is not installed. Install Bun for the fastest standalone build? [y/N] y
+==> Installing Bun
+OK   Bun installed
+==> Building standalone binary with Bun
+  [35ms]  bundle  10 modules
+[3.486s] compile  /home/jay/Documents/Scripts/AI/Opencode/Projects/DESKTOP-APPS/TS-Terminal/nexus
+OK   Installed /usr/local/bin/nexus
+Add Nexus shell integration to ~/.bashrc? (recommended) [y/N] y
+OK   Shell integration added to ~/.bashrc
+==> Run 'source ~/.bashrc' or open a new terminal to activate it.
+
+Nexus CLI/FM is installed.
+
+  Run:       /usr/local/bin/nexus
+  Version:   /usr/local/bin/nexus --version
+  Help:      /usr/local/bin/nexus --help
+  Config:    /home/jay/.config/nexus-cli/config.json
+
+The interface needs a real TTY. It starts in the current directory, sources
+~/.bashrc, ~/.bash_aliases and ~/.bash_functions, and keeps the file manager
+and bash prompt in sync. Press F1 inside Nexus for the full key reference.
+
+jay@jnetreloadedagain:~/Documents/Scripts/AI/Opencode/Projects/DESKTOP-APPS/TS-Terminal$ 
+
+
+
+# Usage
+Open a new terminal window and type:
+
+nexus
+
+
+# Use F9 button to goto cli / file mode!
+
+# Use Tab to auto-complete a command!
+
+# Use page up and down keys for cli mode to see more of the view! Or maximise the window for full view mode!
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
