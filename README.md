@@ -86,6 +86,16 @@ nexus --version
 
 The interface starts in the current working directory. `--cwd` overrides it.
 
+To launch Nexus from the desktop (in a fresh terminal, so a parent CLI cannot steal F9), install the included launcher:
+
+```bash
+./create-launcher.sh
+```
+
+This installs it in the application menu and on the Desktop, using the binary placed by `install.sh`. Options: `--bin /path/to/nexus`, `--no-desktop`, `--no-menu`.
+
+See `launcher.txt` for desktop-icon setup, terminal-specific Exec lines, and the F9/F10/input-capture troubleshooting notes.
+
 > Nexus requires an interactive TTY. Running it through a pipe, a non-interactive CI job, or a file redirect fails with a clear message. Use `--help`/`--version` in scripts.
 
 ---
@@ -105,7 +115,7 @@ The interface starts in the current working directory. `--cwd` overrides it.
 | `F7` | Create a directory |
 | `F8`, `Ctrl+O` | Switch focus between files and the shell |
 | `F9` | Actions menu (sorting, hidden files, theme, Nerd Fonts, refresh, reload bash profile, about, quit) |
-| `F10`, `Ctrl+Q` | Quit |
+| `F10`, `Ctrl+Q` | Quit. Use `Ctrl+Q` if your desktop/window manager captures `F10`. |
 
 ### File manager
 
@@ -289,6 +299,8 @@ src/
   config.ts         JSON config and last-cwd persistence
   version.ts        version constants
 install.sh          Ubuntu installer, Bun/Node build, /usr/local/bin install, shell integration
+create-launcher.sh  install the .desktop launcher in the app menu and on the Desktop
+nexus.desktop       ready-to-use desktop launcher template
 start.sh            run from the project folder
 export-ts.sh        build standalone binary + launch install.sh in one step
 ```
@@ -314,6 +326,10 @@ The layout needs at least **60 × 16** characters. Maximise the terminal or redu
 **Some commands don’t render inside the pane**
 
 Commands that need a TTY (editors, pagers, `top`, REPLs, interactive installers) intentionally take over the terminal. This is expected. Use `!command` to force it for tools Nexus does not auto-detect.
+
+**F10 does not quit / a desktop shortcut steals it**
+
+Many desktops reserve `F10` for the application menu. Nexus always supports `Ctrl+Q` as an alternative quit key, and the footer labels it `^Q Exit`. You can also use `F9` → **Quit Nexus**. If your desktop captures `F9` too, use the desktop launcher described in `launcher.txt` to run Nexus in a dedicated terminal.
 
 **Interactive command returns but the screen looks odd**
 

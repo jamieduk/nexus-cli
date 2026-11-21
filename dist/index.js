@@ -31,7 +31,7 @@ Options:
 Keyboard:
   F1 Help        F2 View        F3 Edit        F4 Copy
   F5 Move        F6 Delete      F7 Mkdir       F8 Focus
-  F9 Menu        F10 Quit       Ctrl+O         Switch focus
+  F9 Menu        F10/^Q Quit    Ctrl+O         Switch focus
   Tab            Auto-complete shell commands and paths
 
 File manager:

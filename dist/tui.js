@@ -737,9 +737,9 @@ export class Tui {
         const rows = [];
         const fullKeys = [
             ['F1', 'Help'], ['F2', 'View'], ['F3', 'Edit'], ['F4', 'Copy'], ['F5', 'Move'],
-            ['F6', 'Delete'], ['F7', 'Mkdir'], ['F8', 'Focus'], ['F9', 'Menu'], ['F10', 'Exit'],
+            ['F6', 'Delete'], ['F7', 'Mkdir'], ['F8', 'Focus'], ['F9', 'Menu'], ['^Q', 'Exit'],
         ];
-        const compactKeys = [['F1', 'Help'], ['F4', 'Copy'], ['F6', 'Del'], ['F8', 'Focus'], ['F9', 'Menu'], ['F10', 'Exit']];
+        const compactKeys = [['F1', 'Help'], ['F4', 'Copy'], ['F6', 'Del'], ['F8', 'Focus'], ['F9', 'Menu'], ['^Q', 'Exit']];
         const keys = width >= 96 ? fullKeys : compactKeys;
         let shortcuts = ' ';
         for (const [key, label] of keys) {
@@ -915,7 +915,7 @@ export function helpLines() {
         '- F6 : delete tagged items (confirmation)',
         '- F7 : create a directory',
         '- F9 : actions menu',
-        '- F10 : quit Nexus',
+        '- F10 or Ctrl+Q : quit Nexus (Ctrl+Q also works when the desktop captures F10)',
         '',
         '## Shell integration',
         'The prompt at the bottom sources ~/.bashrc, ~/.bash_aliases and ~/.bash_functions in an interactive bash.',

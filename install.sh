@@ -202,10 +202,11 @@ if [ "$BUN_OK" -eq 0 ] && [ -z "$PREBUILT" ]; then
   $SUDO rm -rf "$PREFIX/lib/nexus-cli/dist"
   $SUDO cp -R "$ROOT/dist" "$PREFIX/lib/nexus-cli/dist"
   $SUDO cp "$ROOT/package.json" "$PREFIX/lib/nexus-cli/package.json"
+  NODE_BIN="$(command -v node)"
   TMP_WRAPPER="$(mktemp)"
   cat > "$TMP_WRAPPER" <<EOF
 #!/usr/bin/env bash
-exec node "$PREFIX/lib/nexus-cli/dist/index.js" "\$@"
+exec "$NODE_BIN" "$PREFIX/lib/nexus-cli/dist/index.js" "\$@"
 EOF
   chmod +x "$TMP_WRAPPER"
   $SUDO install -m 0755 "$TMP_WRAPPER" "$PREFIX/bin/nexus"

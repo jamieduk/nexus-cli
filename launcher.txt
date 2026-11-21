@@ -1,0 +1,296 @@
+NEXUS DESKTOP LAUNCHER
+======================
+
+Why use a launcher?
+--------------------
+If you start Nexus from inside your current CLI / terminal tool, that tool can
+intercept function keys such as F9 before Nexus sees them. A desktop launcher
+opens Nexus in its own fresh terminal, so the parent CLI is not in the input
+path at all.
+
+F10 is a separate issue: F10 is often reserved by the desktop/window manager
+(for example the GNOME application-menu key). No terminal application can
+receive a key that the OS eats first. Nexus also quits with Ctrl+Q, and the
+launcher does not change OS-wide shortcuts. Use Ctrl+Q if F10 does not reach
+Nexus, or unbind F10 in your desktop shortcuts.
+
+
+
+Quickest way: use the helper script
+-----------------------------------
+The project includes:
+
+    /home/jay/Documents/Scripts/AI/Opencode/Projects/DESKTOP-APPS/TS-Terminal/create-launcher.sh
+
+Run it to install the launcher in both places automatically:
+
+    cd /home/jay/Documents/Scripts/AI/Opencode/Projects/DESKTOP-APPS/TS-Terminal
+    ./create-launcher.sh
+
+It finds the installed binary (/usr/local/bin/nexus, or the one in PATH), writes
+a valid .desktop file, installs it into ~/.local/share/applications and
+~/Desktop, updates the desktop database, and marks the desktop icon trusted
+when GIO supports it.
+
+Useful options:
+
+    ./create-launcher.sh --bin /home/jay/.local/bin/nexus
+    ./create-launcher.sh --no-desktop
+    ./create-launcher.sh --no-menu
+    ./create-launcher.sh --help
+
+Already installed on this machine
+---------------------------------
+The launcher was placed at:
+
+    ~/.local/share/applications/nexus.desktop
+    ~/Desktop/nexus.desktop
+
+Open the Activities/app menu and search for "Nexus", or double-click the
+Desktop icon. It launches the installed /usr/local/bin/nexus binary in a new
+terminal window. Rebuilding/reinstalling Nexus does not require recreating the
+launcher because it points to the stable installed path.
+
+That installed binary is the one placed by install.sh. The launcher does not
+use the source tree or the CLI you are currently running.
+
+The currently installed app is:
+
+    /usr/local/bin/nexus
+
+The launcher uses that exact binary, i.e. the one produced/placed by
+`install.sh` (default prefix /usr/local). If you installed with
+`--prefix "$HOME/.local"`, see "Custom install prefix" below.
+
+
+1. Quick install (recommended)
+------------------------------
+A ready-to-use launcher is included as:
+
+    /home/jay/Documents/Scripts/AI/Opencode/Projects/DESKTOP-APPS/TS-Terminal/nexus.desktop
+
+Verify the installed binary first:
+
+    /usr/local/bin/nexus --version
+
+Then install the launcher in your application menu:
+
+    mkdir -p ~/.local/share/applications
+    cp /home/jay/Documents/Scripts/AI/Opencode/Projects/DESKTOP-APPS/TS-Terminal/nexus.desktop \
+       ~/.local/share/applications/nexus.desktop
+    chmod +x ~/.local/share/applications/nexus.desktop
+    update-desktop-database ~/.local/share/applications
+
+Open the Activities/app menu and search for "Nexus". You can right-click the
+result and add it to your dock/favourites.
+
+Optional desktop icon:
+
+    cp /home/jay/Documents/Scripts/AI/Opencode/Projects/DESKTOP-APPS/TS-Terminal/nexus.desktop \
+       ~/Desktop/nexus.desktop
+    chmod +x ~/Desktop/nexus.desktop
+    gio set ~/Desktop/nexus.desktop metadata::trusted true
+
+If your desktop asks, right-click the desktop file and choose "Allow
+Launching". Some desktops require logging out/in once after adding it.
+
+This launcher opens Nexus in the default terminal with Terminal=true. The
+desktop starts a new terminal process; your current CLI is not launched and
+therefore cannot steal F9.
+
+Check the desktop file:
+
+    desktop-file-validate ~/.local/share/applications/nexus.desktop
+    # no output means valid
+
+
+2. The launcher contents
+------------------------
+If you prefer to create it by hand, put this in
+`~/.local/share/applications/nexus.desktop`:
+
+    [Desktop Entry]
+    Type=Application
+    Version=1.0
+    Name=Nexus CLI/FM
+    GenericName=Terminal File Manager
+    Comment=Dual-pane terminal file manager with an integrated bash prompt
+    Exec=/usr/local/bin/nexus
+    TryExec=/usr/local/bin/nexus
+    Icon=utilities-terminal
+    Terminal=true
+    Categories=Utility;FileTools;
+    Keywords=nexus;terminal;file manager;bash;command line;
+    StartupNotify=true
+
+Notes:
+- `Exec` must be an absolute path. Do not use `~` in a .desktop Exec line.
+- `Terminal=true` tells the desktop to open a terminal for the app. 
+- If you want Nexus to start in a particular folder, add:
+      Exec=/usr/local/bin/nexus --cwd /path/to/folder
+- If your desktop does not honour `Terminal=true`, use a dedicated terminal
+  launcher instead (next section).
+
+
+3. Force a specific terminal (optional)
+---------------------------------------
+If Terminal=true does not work, or you want a specific terminal emulator,
+set `Terminal=false` and make Exec open the terminal explicitly.
+
+Default terminal launcher:
+
+    Exec=/usr/bin/xdg-terminal-exec -- /usr/local/bin/nexus
+    Terminal=false
+
+Ptyxis (the default on this Ubuntu system):
+
+    Exec=/usr/bin/ptyxis -- /usr/local/bin/nexus
+    Terminal=false
+
+GNOME Terminal:
+
+    Exec=gnome-terminal -- /usr/local/bin/nexus
+    Terminal=false
+
+Konsole:
+
+    Exec=konsole -e /usr/local/bin/nexus
+    Terminal=false
+
+Xfce4 Terminal:
+
+    Exec=xfce4-terminal -x /usr/local/bin/nexus
+    Terminal=false
+
+Kitty:
+
+    Exec=kitty /usr/local/bin/nexus
+    Terminal=false
+
+Alacritty:
+
+    Exec=alacritty -e /usr/local/bin/nexus
+    Terminal=false
+
+With an explicit terminal, Nexus runs in a dedicated terminal window; no
+interactive shell wrapper or parent CLI is involved.
+
+
+4. Custom install prefix
+------------------------
+`install.sh` defaults to `/usr/local/bin/nexus`. If you used a different
+prefix, find the real path and put it in both `Exec=` and `TryExec=`:
+
+    command -v nexus
+    readlink -f "$(command -v nexus)"
+
+For example, with `--prefix "$HOME/.local"`:
+
+    Exec=/home/jay/.local/bin/nexus
+    TryExec=/home/jay/.local/bin/nexus
+
+Never use `~` inside Exec. Use the expanded absolute path.
+If the path contains spaces, quote it in Exec according to .desktop rules.
+
+If you have not installed it yet:
+
+    cd /home/jay/Documents/Scripts/AI/Opencode/Projects/DESKTOP-APPS/TS-Terminal
+    ./install.sh --yes
+
+That places the installed binary at /usr/local/bin/nexus and then the
+launcher above will work.
+
+
+5. Function keys: F9, F10 and the OS
+------------------------------------
+F9 inside Nexus is the Actions menu. F8 is focus switching, and Tab completes
+commands/paths in the shell.
+
+A launcher fixes the "my CLI intercepts F9" problem because there is no parent
+CLI in the new terminal. It does NOT override global OS/desktop shortcuts.
+
+F10 inside Nexus is Quit, but many desktops reserve F10 for the application
+menu / menu bar. In that case the OS consumes it before Nexus sees it.
+
+Use either of these instead:
+
+    Ctrl+Q          Quit Nexus (recommended fallback)
+    F9 -> Quit      Quit from the Nexus actions menu
+    menu -> Quit    If F10 is unavailable, Ctrl+Q is always the easiest
+
+The installed build supports Ctrl+Q already, even if its footer still shows F10.
+After you rebuild with the latest source, the footer labels it `^Q Exit` so it
+is visible even when F10 is captured by the desktop.
+
+To test whether the terminal is delivering F9/F10 to applications:
+
+    cat -v
+
+Then press F9 and F10. Typical sequences are:
+
+    F9   -> ^[[20~
+    F10  -> ^[[21~
+
+If you see a terminal menu, window menu, fullscreen change, or something else
+instead of the escape sequence, the terminal emulator or desktop has bound
+that key. Check:
+
+- GNOME/Ubuntu: Settings -> Keyboard -> View and Customize Shortcuts.
+  Also inspect shell extensions and desktop-specific keybindings.
+- Ptyxis: run `ptyxis --preferences` and check its shortcuts.
+- GNOME Terminal: Preferences -> Shortcuts.
+- Konsole: Settings -> Configure Keyboard Shortcuts.
+- Xfce4 Terminal: Edit -> Preferences -> Shortcuts.
+- KDE: System Settings -> Keyboard -> Shortcuts.
+- tmux: check for F9/F10 bindings:
+      tmux show-options -g | grep -i -E 'F9|F10'
+      tmux list-keys | grep -i -E 'F9|F10'
+  Default tmux uses Ctrl+B as its prefix; it does not normally capture F9/F10.
+  If your config binds them, remove the binding or run `unbind -n F9` /
+  `unbind -n F10` in tmux and reload with `tmux source-file ~/.tmux.conf`.
+- screen: check ~/.screenrc and `bindkey`.
+
+Nexus reads keys in raw mode and maps:
+    F9  = actions menu
+    F10 = quit (if delivered)
+    Ctrl+Q = quit
+    F8 / Ctrl+O = focus switch
+    Tab = shell completion
+
+
+6. Troubleshooting
+------------------
+Launcher does nothing:
+- Run `/usr/local/bin/nexus --version` from a terminal. If that fails,
+  reinstall with `./install.sh --yes`.
+- Check `TryExec` and `Exec` paths.
+- Run `desktop-file-validate` on the file.
+- After copying, run `update-desktop-database ~/.local/share/applications`.
+- On GNOME, mark a desktop copy trusted (`gio set ... metadata::trusted true`)
+  or right-click -> Allow Launching.
+
+Launcher opens an empty terminal and exits:
+- The installed `/usr/local/bin/nexus` may be a Node wrapper that cannot find
+  `node` in the desktop session PATH. The normal build is a standalone Bun
+  binary (check with `file /usr/local/bin/nexus`). If it is a shell wrapper,
+  either reinstall with Bun or replace the wrapper's `node` command with the
+  absolute path from `command -v node`.
+
+F9 still does not open the Nexus menu:
+- Run the `cat -v` test. If the escape sequence is not printed, the terminal
+  or OS is capturing F9. Unbind it in the terminal/desktop settings.
+- Launching from the desktop already avoids any parent CLI stealing F9.
+
+F10 does not quit:
+- The OS is capturing F10. Use Ctrl+Q or F9 -> Quit, or unbind F10 in your
+  desktop settings.
+- Ctrl+Q is checked before any pane handling, so it works from the file
+  manager, the shell prompt, and menus.
+
+Nexus opens but the bottom prompt is in an unexpected directory:
+- Add `--cwd /desired/path` to the Exec line.
+- Or create a small wrapper script and let the .desktop Exec call it.
+
+Security:
+- A .desktop file is executable configuration. Only install launchers you
+  created or trust. This launcher only runs /usr/local/bin/nexus.
